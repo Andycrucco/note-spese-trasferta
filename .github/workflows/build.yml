@@ -12,26 +12,19 @@ jobs:
   apk:
     runs-on: ubuntu-latest
     env:
-      # chiave di firma privata, salvata solo nei Secrets del repository
-      KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+      # unica password, salvata nei Secrets: apre la chiave cifrata signing/app.keystore.enc
       KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Controlla la chiave di firma
-        if: env.KEYSTORE_B64 == '' || env.KEYSTORE_PASSWORD == ''
+      - name: Apri la chiave di firma
         run: |
-          echo "::error::Mancano i Secrets KEYSTORE_B64 e/o KEYSTORE_PASSWORD (Settings > Secrets and variables > Actions)."
-          exit 1
-
-      - name: Chiave di firma dai Secrets
-        run: |
-          mkdir -p signing
-          # tollera spazi e a capo entrati nella copia da telefono
-          printf %s "$KEYSTORE_B64" | tr -d ' \r\n\t' | base64 -d > signing/app.keystore 2>/dev/null || {
-            echo "::error::KEYSTORE_B64 non è valido: ricopia l'intera riga lunga del file, senza parole in più."; exit 1; }
-          keytool -list -keystore signing/app.keystore -storepass "$KEYSTORE_PASSWORD" -alias notespese > /dev/null 2>&1 || {
-            echo "::error::La chiave c'è ma KEYSTORE_PASSWORD non corrisponde (oppure KEYSTORE_B64 è incompleto)."; exit 1; }
+          if [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::Manca il Secret KEYSTORE_PASSWORD (Settings > Secrets and variables > Actions)."; exit 1; fi
+          KEYSTORE_PASSWORD="$(printf %s "$KEYSTORE_PASSWORD" | tr -d ' \r\n\t')"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in signing/app.keystore.enc -out signing/app.keystore -pass env:KEYSTORE_PASSWORD 2>/dev/null || {
+            echo "::error::KEYSTORE_PASSWORD non apre la chiave: ricopia la password di 32 caratteri."; exit 1; }
+          echo "KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
           echo "Chiave di firma OK"
 
       - uses: actions/setup-java@v4
