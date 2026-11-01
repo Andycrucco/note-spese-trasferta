@@ -122,7 +122,7 @@ class MainActivity : AppCompatActivity() {
         val pr = getSharedPreferences("ui", MODE_PRIVATE)
         if (Store.myCard.isNotEmpty() || !Store.consentShown(this) || pr.getBoolean("cardAsked", false)) return
         pr.edit().putBoolean("cardAsked", true).apply()
-        val inp = input("Es. 1234", InputType.TYPE_CLASS_NUMBER).apply { filters = arrayOf(android.text.InputFilter.LengthFilter(4)) }
+        val inp = input("Es. 1234", InputType.TYPE_CLASS_NUMBER).apply { filters = arrayOf<android.text.InputFilter>(android.text.InputFilter.LengthFilter(4)) }
         val wrap = vbox().apply { setPadding(dp(22), dp(8), dp(22), 0); addView(inp) }
         wrap.addView(txt("L'app terrà solo gli addebiti di questa carta e la proporrà nelle nuove spese. Puoi cambiarla in Profilo e sicurezza.", 12.5f, R.color.ink2), lp(top = dp(6)))
         AlertDialog.Builder(this).setTitle("Ultime 4 cifre della carta aziendale").setView(wrap)
@@ -148,7 +148,7 @@ class MainActivity : AppCompatActivity() {
         box.addView(field("Nome e cognome", name), lp(top = dp(12)))
         box.addView(field("Email", mail), lp(top = dp(12)))
         val cardIn = input("Es. 1234", InputType.TYPE_CLASS_NUMBER).apply {
-            setText(Store.myCard); filters = arrayOf(android.text.InputFilter.LengthFilter(4))
+            setText(Store.myCard); filters = arrayOf<android.text.InputFilter>(android.text.InputFilter.LengthFilter(4))
         }
         box.addView(field("Ultime 4 cifre della carta aziendale", cardIn), lp(top = dp(12)))
         box.addView(txt("Ognuno usa la sua: l'app tiene solo gli addebiti di questa carta e la propone nelle nuove spese.", 12f, R.color.ink2), lp(top = dp(2)))
@@ -165,7 +165,7 @@ class MainActivity : AppCompatActivity() {
                 val m = mail.text.toString().trim()
                 Store.myName = name.text.toString().trim().take(60)
                 Store.myEmail = if (android.util.Patterns.EMAIL_ADDRESS.matcher(m).matches()) m else ""
-                Store.myCard = cardIn.text.toString().filter { it.isDigit() }.takeIf { it.length == 4 } ?: """
+                Store.myCard = cardIn.text.toString().filter { it.isDigit() }.takeIf { it.length == 4 } ?: ""
                 val wantLock = lockBox.isChecked
                 if (wantLock && !Store.lockEnabled) {
                     // conferma con impronta/PIN prima di attivare il blocco
