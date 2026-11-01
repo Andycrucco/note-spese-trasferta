@@ -84,6 +84,7 @@ class SaveReceiver : BroadcastReceiver() {
                 val added = save(app, sender, text)
                 val pend = Store.pending().map { it.id }.toSet()
                 for (s in added) if (s.id in pend) Notifier.charge(app, s, saved = true)
+                if (added.isNotEmpty()) Sync.later(app)
             } catch (_: Exception) {
                 record(app, "errore nel salvataggio")
             } finally { pending.finish() }

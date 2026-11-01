@@ -19,6 +19,15 @@ object Store {
     var myEmail = ""
     /** ultime 4 cifre della carta aziendale: gli SMS e i movimenti di altre carte vengono ignorati */
     var myCard = ""
+    /** repository condiviso (GitHub privato "proprietario/nome") e chiave di accesso */
+    var repo = ""
+    var repoToken = ""
+    var lastSync = 0L
+    var syncMsg = ""
+    /** stato della sincronizzazione: sha remoto e impronta locale dell'ultimo allineamento, file cancellati da togliere dal repository */
+    val syncSha = HashMap<String, String>()
+    val syncHash = HashMap<String, String>()
+    val tombstones = HashMap<String, Long>()
     /** blocco con impronta/PIN all'apertura */
     var lockEnabled = false
     var useLocation = true
@@ -48,7 +57,7 @@ object Store {
     @Synchronized
     fun load(ctx: Context) {
         if (loaded) return
-        expenses.clear(); sms.clear(); tableSeen.clear()
+        expenses.clear(); sms.clear(); tableSeen.clear(); syncSha.clear(); syncHash.clear(); tombstones.clear()
         val f = file(ctx)
         if (f.exists()) {
             try {
@@ -63,6 +72,11 @@ object Store {
                 myName = o.optString("myName", "")
                 myEmail = o.optString("myEmail", "")
                 myCard = o.optString("myCard", "")
+                repo = o.optString("repo", ""); repoToken = o.optString("repoToken", "")
+                lastSync = o.optLong("lastSync", 0L); syncMsg = o.optString("syncMsg", "")
+                o.optJSONObject("syncSha")?.let { t -> t.keys().forEach { k -> syncSha[k] = t.optString(k) } }
+                o.optJSONObject("syncHash")?.let { t -> t.keys().forEach { k -> syncHash[k] = t.optString(k) } }
+                o.optJSONObject("tombstones")?.let { t -> t.keys().forEach { k -> tombstones[k] = t.optLong(k) } }
                 lockEnabled = o.optBoolean("lockEnabled", false)
                 useLocation = o.optBoolean("useLocation", true)
                 capAmount = o.optDouble("capAmount", 0.0)
@@ -90,6 +104,9 @@ object Store {
         o.put("myName", myName); o.put("myEmail", myEmail); o.put("myCard", myCard); o.put("lockEnabled", lockEnabled); o.put("useLocation", useLocation)
         o.put("capAmount", capAmount); o.put("capCurrency", capCurrency); o.put("capYear", capYear)
         o.put("downloadUrl", downloadUrl)
+        o.put("repo", repo); o.put("repoToken", repoToken); o.put("lastSync", lastSync); o.put("syncMsg", syncMsg)
+        o.put("syncSha", JSONObject(syncSha as Map<*, *>)); o.put("syncHash", JSONObject(syncHash as Map<*, *>))
+        o.put("tombstones", JSONObject().apply { tombstones.forEach { (k, v) -> put(k, v) } })
         val cut = System.currentTimeMillis() - 30L * 86_400_000L
         o.put("tableSeen", JSONObject().apply { tableSeen.filter { it.value >= cut }.forEach { (k, v) -> put(k, v) } })
         // dati cifrati con la chiave del Keystore di Android; se il telefono non la offre, restano nella memoria privata dell'app
@@ -135,6 +152,22 @@ object Store {
 
     fun knownCards(): List<String> = expenses.map { it.card }.filter { it.isNotBlank() }.distinct().take(8)
 
+    /** spesa eliminata: la tolgo anche dal repository condiviso alla prossima sincronizzazione */
+    fun forgetExpense(e: Expense) {
+        expenses.removeAll { it.id == e.id }
+        if (repo.isNotEmpty()) { tombstones["spese/${e.id}.json"] = System.currentTimeMillis(); tombstones["foto/${e.id}.jpg"] = System.currentTimeMillis() }
+    }
+
+    fun forgetSms(s: SmsCharge) {
+        sms.removeAll { it.id == s.id }
+        if (repo.isNotEmpty()) tombstones["sms/${s.id}.json"] = System.currentTimeMillis()
+    }
+
+    fun expJson(e: Expense): JSONObject = expTo(e)
+    fun expParse(o: JSONObject): Expense = expFrom(o)
+    fun smsJson(s: SmsCharge): JSONObject = smsTo(s)
+    fun smsParse(o: JSONObject): SmsCharge = smsFrom(o)
+
     private fun expTo(e: Expense) = JSONObject().apply {
         put("id", e.id); put("trip", e.trip); put("date", e.date); put("place", e.place)
         put("amount", e.amount); put("tip", e.tip); put("currency", e.currency); put("card", e.card)
@@ -145,6 +178,7 @@ object Store {
         put("lat", e.lat ?: JSONObject.NULL); put("lon", e.lon ?: JSONObject.NULL)
         put("country", e.country); put("poi", e.poi); put("catReason", e.catReason)
         put("eurRate", e.eurRate ?: JSONObject.NULL); put("eurDate", e.eurDate); put("declaration", e.declaration)
+        put("updated", e.updated)
     }
 
     private fun expFrom(o: JSONObject) = Expense(
@@ -157,7 +191,7 @@ object Store {
         lat = if (o.isNull("lat")) null else o.optDouble("lat"), lon = if (o.isNull("lon")) null else o.optDouble("lon"),
         country = o.optString("country"), poi = o.optString("poi"), catReason = o.optString("catReason"),
         eurRate = if (o.isNull("eurRate")) null else o.optDouble("eurRate"), eurDate = o.optString("eurDate"),
-        declaration = o.optBoolean("declaration", false)
+        declaration = o.optBoolean("declaration", false), updated = o.optLong("updated", 0L)
     )
 
     private fun smsTo(s: SmsCharge) = JSONObject().apply {

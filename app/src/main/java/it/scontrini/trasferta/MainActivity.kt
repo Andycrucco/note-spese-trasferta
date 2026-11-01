@@ -67,6 +67,8 @@ class MainActivity : AppCompatActivity() {
         Store.reload(this)
         render()
         askCardOnce()
+        Sync.onDone = { runOnUiThread { if (!isFinishing) render() } }
+        Sync.later(this, force = false)
         if (Store.expenses.any { it.eurRate == null }) Thread {
             val n = try { synchronized(Store) { Fx.fill(this, Store.expenses).also { if (it > 0) Store.save(this) } } } catch (e: Exception) { 0 }
             if (n > 0) runOnUiThread { render() }
@@ -77,6 +79,7 @@ class MainActivity : AppCompatActivity() {
         menu.add(0, 2, 0, "Profilo e sicurezza")
         menu.add(0, 1, 1, "Impostazioni")
         menu.add(0, 3, 2, "Collega MacroDroid")
+        menu.add(0, 4, 0, "Repository condiviso")
         return true
     }
 
@@ -84,6 +87,7 @@ class MainActivity : AppCompatActivity() {
         if (item.itemId == 1) { settings(); return true }
         if (item.itemId == 2) { profile(first = false); return true }
         if (item.itemId == 3) { macroDroid(); return true }
+        if (item.itemId == 4) { repoDialog(); return true }
         return super.onOptionsItemSelected(item)
     }
 
@@ -117,6 +121,76 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Ho capito, continua") { _, _ -> Store.setConsentShown(this); profile(first = true) }
             .setNegativeButton("Non ora") { _, _ -> Store.setConsentShown(this); profile(first = true) }
             .show()
+    }
+
+    /** Repository condiviso: stesso archivio su più telefoni (GitHub privato). */
+    private fun repoDialog() {
+        val box = vbox().apply { setPadding(dp(22), dp(8), dp(22), 0) }
+        box.addView(txt(if (Sync.connected) Sync.status() else "Spese, foto e addebiti finiscono in un tuo repository GitHub privato e ogni telefono collegato li vede. Nessun altro server.", 13f,
+            if (Store.syncMsg.startsWith("non riuscita")) R.color.warn else R.color.ink2))
+        val repoIn = input("proprietario/note-spese-dati").apply { setText(Store.repo.ifEmpty { "Andycrucco/note-spese-dati" }) }
+        val tokIn = input("github_pat_…", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD).apply { setText(Store.repoToken) }
+        box.addView(field("Repository (privato)", repoIn), lp(top = dp(12)))
+        box.addView(field("Chiave di accesso (token)", tokIn), lp(top = dp(12)))
+        box.addView(txt("Su GitHub: Settings › Developer settings › Fine-grained tokens › solo questo repository › Contents: Read and write. Sull'altro telefono non serve riscriverla: usa il QR.", 12f, R.color.ink2), lp(top = dp(4)))
+        lateinit var dlg: AlertDialog
+        fun doConnect(repo: String, tok: String) {
+            if (!Regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$").matches(repo) || tok.length < 20) { toast("Controlla nome del repository (proprietario/nome) e chiave."); return }
+            toast("Controllo il repository…")
+            Thread {
+                val err = try { Sync.check(repo, tok); null } catch (e: Exception) { (e as? Sync.Error)?.message ?: "Senza connessione: riprova." }
+                runOnUiThread {
+                    if (err != null) { toast(err); return@runOnUiThread }
+                    Sync.connect(repo, tok); Store.save(this); dlg.dismiss()
+                    toast("Collegato. Sincronizzo spese, foto e addebiti…")
+                    Thread {
+                        val r = try { Sync.run(applicationContext) } catch (e: Exception) { "non riuscita: " + ((e as? Sync.Error)?.message ?: "errore") }
+                        runOnUiThread { toast("Sincronizzazione: $r"); render() }
+                    }.start()
+                }
+            }.start()
+        }
+        if (Sync.connected) {
+            box.addView(btn("Sincronizza ora") {
+                toast("Sincronizzo…")
+                Thread {
+                    val r = try { Sync.run(applicationContext) } catch (e: Exception) { "non riuscita: " + ((e as? Sync.Error)?.message ?: "errore") }
+                    runOnUiThread { toast("Sincronizzazione: $r"); render() }
+                }.start()
+            }, lp(top = dp(14)))
+            box.addView(btn("Mostra il QR per l'altro telefono", false) {
+                val v = vbox().apply { setPadding(dp(20), dp(8), dp(20), 0); gravity = Gravity.CENTER_HORIZONTAL }
+                v.addView(ImageView(this).apply {
+                    setImageBitmap(Tavolo.qr(Sync.qrPayload())); adjustViewBounds = true
+                    setBackgroundColor(android.graphics.Color.WHITE); setPadding(dp(10), dp(10), dp(10), dp(10))
+                }, lp(w = dp(260), h = dp(260)))
+                v.addView(txt("Sull'altro telefono: menu ⋮ › Repository condiviso › Leggi il QR. Contiene la chiave: mostralo solo ai tuoi telefoni.", 12.5f, R.color.warn).apply { gravity = Gravity.CENTER }, lp(top = dp(8)))
+                AlertDialog.Builder(this).setTitle("Collega l'altro telefono").setView(v).setPositiveButton("Chiudi", null).show()
+            }, lp(top = dp(8)))
+        }
+        box.addView(btn("Leggi il QR dall'altro telefono", false) {
+            val opts = com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions.Builder()
+                .setBarcodeFormats(com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE).build()
+            com.google.mlkit.vision.codescanner.GmsBarcodeScanning.getClient(this, opts).startScan()
+                .addOnSuccessListener { b ->
+                    val p = Sync.parseQr(b.rawValue ?: "")
+                    if (p == null) toast("Questo QR non è un repository di Note spese.") else { repoIn.setText(p.first); tokIn.setText(p.second); doConnect(p.first, p.second) }
+                }
+                .addOnFailureListener { toast("Lettore QR non disponibile. Serve internet la prima volta per scaricarlo.") }
+        }, lp(top = dp(8)))
+        dlg = AlertDialog.Builder(this).setTitle("Repository condiviso").setView(ScrollView(this).apply { addView(box) })
+            .setPositiveButton(if (Sync.connected) "Salva" else "Collega", null)
+            .setNegativeButton("Chiudi", null)
+            .apply { if (Sync.connected) setNeutralButton("Scollega") { _, _ -> Sync.disconnect(); Store.save(this@MainActivity); render(); toast("Scollegato: i dati restano su questo telefono e nel repository.") } }
+            .create()
+        dlg.setOnShowListener {
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val r = repoIn.text.toString().trim().removePrefix("https://github.com/").removeSuffix(".git").trimEnd('/')
+                val t = tokIn.text.toString().trim()
+                if (Sync.connected && r == Store.repo && t == Store.repoToken) dlg.dismiss() else doConnect(r, t)
+            }
+        }
+        dlg.show()
     }
 
     /** Istruzioni per la routine MacroDroid: ogni SMS della banca finisce in Da completare, senza aprire nulla. */
@@ -326,6 +400,12 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        if (Sync.connected) root.addView(txt(Sync.status(), 12f, if (Store.syncMsg.startsWith("non riuscita")) R.color.warn else R.color.ink2).apply {
+            setPadding(0, dp(4), 0, 0); setOnClickListener { repoDialog() }
+        })
+        else if (Store.expenses.isNotEmpty()) root.addView(txt("Usi più telefoni? Collega il repository condiviso ›", 12.5f, R.color.red, true).apply {
+            setPadding(0, dp(4), 0, 0); setOnClickListener { repoDialog() }
+        })
         if (Store.myName.isNotBlank()) {
             root.addView(txt("Ciao " + Store.myName.substringBefore(' ') + (if (Store.myCard.isNotEmpty()) "  ·  carta " + Store.myCard else "") + (if (Store.lockEnabled) "  ·  app protetta" else ""), 13f, R.color.ink2), lp(top = dp(6)))
         }
@@ -588,7 +668,7 @@ class MainActivity : AppCompatActivity() {
                     2 -> AlertDialog.Builder(this).setTitle("Eliminare questa spesa?")
                         .setMessage(e.place + " · " + Fmt.money(e.total) + " " + e.currency)
                         .setPositiveButton("Elimina") { _, _ ->
-                            Store.expenses.removeAll { it.id == e.id }
+                            Store.forgetExpense(e)
                             e.photo?.let { File(it).delete() }
                             Store.save(this); render()
                         }.setNegativeButton("Annulla", null).show()
@@ -612,7 +692,7 @@ class MainActivity : AppCompatActivity() {
     private fun deleteSms(s: SmsCharge) {
         AlertDialog.Builder(this).setTitle("Eliminare questo addebito?")
             .setMessage(Fmt.money(s.amount) + " " + s.currency + " · " + s.merchant)
-            .setPositiveButton("Elimina") { _, _ -> Store.sms.removeAll { it.id == s.id }; Store.save(this); render() }
+            .setPositiveButton("Elimina") { _, _ -> Store.forgetSms(s); Store.save(this); render(); Sync.later(this) }
             .setNegativeButton("Annulla", null).show()
     }
 

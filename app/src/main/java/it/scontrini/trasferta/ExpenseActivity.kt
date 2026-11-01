@@ -615,9 +615,11 @@ class ExpenseActivity : AppCompatActivity() {
                 }
                 synchronized(Store) {
                     val i = Store.expenses.indexOfFirst { it.id == e.id }
+                    e.updated = System.currentTimeMillis()
                     if (i >= 0) Store.expenses[i] = e else Store.expenses.add(e)
                     Store.save(this)
                 }
+                Sync.later(this)
                 runOnUiThread {
                     busy = false
                     toast("Registrato: " + e.place + ", " + Fmt.money(e.total) + " " + e.currency)

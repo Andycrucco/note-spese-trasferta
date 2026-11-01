@@ -30,7 +30,9 @@ data class Expense(
     var eurRate: Double? = null,
     var eurDate: String = "",
     /** scontrino non disponibile: il PDF è una dichiarazione sostitutiva */
-    var declaration: Boolean = false
+    var declaration: Boolean = false,
+    /** ultima modifica: decide chi vince se la stessa spesa cambia su due telefoni */
+    var updated: Long = 0L
 ) {
     val totalEur: Double? get() = eurRate?.let { Fmt.round2(total * it) }
     /** quanto addebitato sulla carta: è quello che si confronta con l'SMS */
