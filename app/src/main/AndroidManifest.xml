@@ -34,7 +34,8 @@
     </queries>
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:label="Scontrini Trasferta"
@@ -64,6 +65,11 @@
                 <data android:scheme="https" android:host="github.com" android:pathPrefix="/Andycrucco/note-spese-trasferta/releases" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".LockActivity"
+            android:exported="false"
+            android:excludeFromRecents="true" />
 
         <activity
             android:name=".ExpenseActivity"

@@ -47,7 +47,7 @@ object Reminder {
         val list = pend.take(4).joinToString("\n") { Fmt.money(it.amount) + " " + it.currency + (if (it.merchant.isNotEmpty()) " · " + it.merchant else "") }
         val n = NotificationCompat.Builder(ctx, CH)
             .setSmallIcon(R.drawable.ic_notif)
-            .setColor(0xFFD6001C.toInt())
+            .setColor(0xFFE10A1E.toInt())
             .setContentTitle("${pend.size} " + (if (pend.size == 1) "addebito" else "addebiti") + " senza scontrino")
             .setContentText("Fotografali finché li hai in tasca, oppure fai la dichiarazione.")
             .setStyle(NotificationCompat.BigTextStyle().bigText(list + "\nTocca per fotografarli o fare la dichiarazione."))

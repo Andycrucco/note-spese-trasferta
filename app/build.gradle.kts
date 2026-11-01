@@ -58,6 +58,8 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.9.2")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
+    // blocco dell'app con impronta, volto o PIN del telefono
+    implementation("androidx.biometric:biometric:1.1.0")
     // Lettura del testo dello scontrino direttamente sul telefono, senza internet
     implementation("com.google.mlkit:text-recognition:16.0.1")
     // "Sono a tavola": scoperta dei telefoni dei colleghi vicini (Bluetooth / Wi-Fi), senza server

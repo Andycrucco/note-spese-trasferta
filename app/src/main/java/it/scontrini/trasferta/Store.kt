@@ -16,6 +16,9 @@ object Store {
     var currency = "MXN"
     var senders = ""
     var myName = ""
+    var myEmail = ""
+    /** blocco con impronta/PIN all'apertura */
+    var lockEnabled = false
     var useLocation = true
     /** massimale pasto per persona, nella valuta e nell'anno indicati, rivalutato con il CPI */
     var capAmount = 0.0
@@ -47,13 +50,17 @@ object Store {
         val f = file(ctx)
         if (f.exists()) {
             try {
-                val o = JSONObject(f.readText())
+                val raw = f.readBytes()
+                val text = if (Vault.isEncrypted(raw)) String(Vault.decrypt(raw), Charsets.UTF_8) else String(raw, Charsets.UTF_8)
+                val o = JSONObject(text)
                 o.optJSONArray("expenses")?.let { a -> for (i in 0 until a.length()) expenses.add(expFrom(a.getJSONObject(i))) }
                 o.optJSONArray("sms")?.let { a -> for (i in 0 until a.length()) sms.add(smsFrom(a.getJSONObject(i))) }
                 trip = o.optString("trip", "")
                 currency = o.optString("currency", "MXN").ifEmpty { "MXN" }
                 senders = o.optString("senders", "")
                 myName = o.optString("myName", "")
+                myEmail = o.optString("myEmail", "")
+                lockEnabled = o.optBoolean("lockEnabled", false)
                 useLocation = o.optBoolean("useLocation", true)
                 capAmount = o.optDouble("capAmount", 0.0)
                 capCurrency = o.optString("capCurrency", "")
@@ -77,14 +84,17 @@ object Store {
         o.put("expenses", JSONArray().apply { expenses.forEach { put(expTo(it)) } })
         o.put("sms", JSONArray().apply { sms.forEach { put(smsTo(it)) } })
         o.put("trip", trip); o.put("currency", currency); o.put("senders", senders)
-        o.put("myName", myName); o.put("useLocation", useLocation)
+        o.put("myName", myName); o.put("myEmail", myEmail); o.put("lockEnabled", lockEnabled); o.put("useLocation", useLocation)
         o.put("capAmount", capAmount); o.put("capCurrency", capCurrency); o.put("capYear", capYear)
         o.put("downloadUrl", downloadUrl)
         val cut = System.currentTimeMillis() - 30L * 86_400_000L
         o.put("tableSeen", JSONObject().apply { tableSeen.filter { it.value >= cut }.forEach { (k, v) -> put(k, v) } })
+        // dati cifrati con la chiave del Keystore di Android; se il telefono non la offre, restano nella memoria privata dell'app
+        val bytes = o.toString().toByteArray(Charsets.UTF_8)
+        val out = try { Vault.encrypt(bytes) } catch (e: Exception) { bytes }
         val tmp = File(ctx.filesDir, "data.tmp")
-        tmp.writeText(o.toString())
-        if (!tmp.renameTo(file(ctx))) { file(ctx).writeText(o.toString()); tmp.delete() }
+        tmp.writeBytes(out)
+        if (!tmp.renameTo(file(ctx))) { file(ctx).writeBytes(out); tmp.delete() }
     }
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences("app", Context.MODE_PRIVATE)

@@ -33,6 +33,11 @@ class MainActivity : AppCompatActivity() {
     private var showAll = false
 
     private val perms = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { render() }
+    /** risposta del selettore account Google del telefono */
+    private var onAccount: ((String) -> Unit)? = null
+    private val chooseAccount = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        r.data?.getStringExtra(android.accounts.AccountManager.KEY_ACCOUNT_NAME)?.let { onAccount?.invoke(it) }
+    }
     private val pickLogo = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let { saveLogo(it) } }
 
     override fun onCreate(b: Bundle?) {
@@ -48,8 +53,14 @@ class MainActivity : AppCompatActivity() {
         if (b == null) { if (Store.consentShown(this)) askPermissions() else disclosure() }
     }
 
+    override fun onPause() {
+        super.onPause()
+        Lock.paused()
+    }
+
     override fun onResume() {
         super.onResume()
+        Lock.guard(this)
         Store.reload(this)
         render()
         if (Store.expenses.any { it.eurRate == null }) Thread {
@@ -59,12 +70,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        menu.add(0, 1, 0, "Impostazioni")
+        menu.add(0, 2, 0, "Profilo e sicurezza")
+        menu.add(0, 1, 1, "Impostazioni")
         return true
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         if (item.itemId == 1) { settings(); return true }
+        if (item.itemId == 2) { profile(first = false); return true }
         return super.onOptionsItemSelected(item)
     }
 
@@ -95,8 +108,50 @@ class MainActivity : AppCompatActivity() {
         }
         val sv = ScrollView(this).apply { addView(box) }
         AlertDialog.Builder(this).setTitle("Prima di iniziare").setView(sv).setCancelable(false)
-            .setPositiveButton("Ho capito, continua") { _, _ -> Store.setConsentShown(this); askPermissions() }
-            .setNegativeButton("Non ora") { _, _ -> Store.setConsentShown(this) }
+            .setPositiveButton("Ho capito, continua") { _, _ -> Store.setConsentShown(this); profile(first = true) }
+            .setNegativeButton("Non ora") { _, _ -> Store.setConsentShown(this); profile(first = true) }
+            .show()
+    }
+
+    private fun pickGoogleAccount(onPicked: (String) -> Unit) {
+        onAccount = onPicked
+        try {
+            chooseAccount.launch(android.accounts.AccountManager.newChooseAccountIntent(null, null, arrayOf("com.google"), null, null, null, null))
+        } catch (e: Exception) { toast("Nessun account Google sul telefono: scrivi l'email a mano.") }
+    }
+
+    /** Registrazione sul telefono: nome, email (anche dall'account Google) e blocco con impronta/PIN. */
+    private fun profile(first: Boolean) {
+        val box = vbox().apply { setPadding(dp(22), dp(8), dp(22), 0) }
+        box.addView(txt(if (first) "Crea il tuo profilo. Resta solo su questo telefono: nome ed email compaiono sui PDF e nel QR per i commensali." else "Il profilo resta solo su questo telefono.", 13.5f, R.color.ink2))
+        val name = input("Nome e cognome", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS).apply { setText(Store.myName) }
+        val mail = input("nome@esempio.com", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS).apply { setText(Store.myEmail) }
+        box.addView(field("Nome e cognome", name), lp(top = dp(12)))
+        box.addView(field("Email", mail), lp(top = dp(12)))
+        box.addView(btn("Usa un account Google del telefono", false) { pickGoogleAccount { mail.setText(it) } }, lp(top = dp(8)))
+        val lockBox = CheckBox(this).apply {
+            text = "Proteggi l'app con impronta o PIN del telefono"; isChecked = Store.lockEnabled || first
+            setTextColor(col(R.color.ink))
+        }
+        box.addView(lockBox, lp(top = dp(12)))
+        Lock.unavailable(this)?.let { why -> lockBox.isEnabled = false; lockBox.isChecked = false; box.addView(txt(why, 12f, R.color.warn)) }
+        val sv = ScrollView(this).apply { addView(box) }
+        AlertDialog.Builder(this).setTitle(if (first) "Registrazione" else "Profilo e sicurezza").setView(sv).setCancelable(!first)
+            .setPositiveButton("Salva") { _, _ ->
+                val m = mail.text.toString().trim()
+                Store.myName = name.text.toString().trim().take(60)
+                Store.myEmail = if (android.util.Patterns.EMAIL_ADDRESS.matcher(m).matches()) m else ""
+                val wantLock = lockBox.isChecked
+                if (wantLock && !Store.lockEnabled) {
+                    // conferma con impronta/PIN prima di attivare il blocco
+                    Lock.prompt(this, "Conferma per attivare il blocco", {
+                        Store.lockEnabled = true; Lock.unlocked(); Store.save(this); toast("Blocco attivo: all'apertura serviranno impronta o PIN."); render()
+                    }, { e -> toast("Blocco non attivato: $e") })
+                } else Store.lockEnabled = wantLock
+                Store.save(this); render()
+                if (first) askPermissions()
+            }
+            .apply { if (!first) setNegativeButton("Annulla", null) }
             .show()
     }
 
@@ -122,6 +177,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        if (Store.myName.isNotBlank()) {
+            root.addView(txt("Ciao " + Store.myName.substringBefore(' ') + (if (Store.lockEnabled) "  ·  app protetta" else ""), 13f, R.color.ink2), lp(top = dp(6)))
+        }
         // trasferta
         val trip = input("Es. Città del Messico ott 2026").apply {
             setText(Store.trip); imeOptions = EditorInfo.IME_ACTION_DONE

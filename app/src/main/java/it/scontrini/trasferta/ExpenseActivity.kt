@@ -131,12 +131,14 @@ class ExpenseActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        Lock.guard(this)
         Table.onChange = { runOnUiThread { renderChips(); renderTableBtn() } }
         renderTableBtn()
     }
 
     override fun onPause() {
         super.onPause()
+        Lock.paused()
         Table.onChange = null
     }
 

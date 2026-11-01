@@ -62,9 +62,9 @@ object PdfMaker {
     private const val W = 595
     private const val H = 842
     private const val M = 40f
-    private const val INK = 0xFF16191E.toInt()
+    private const val INK = 0xFF0A0A0A.toInt()
     private const val INK2 = 0xFF5E6570.toInt()
-    private const val RED = 0xFFD6001C.toInt()
+    private const val RED = 0xFFE10A1E.toInt()
     private const val LINE = 0xFFD5DAE0.toInt()
 
     private fun paint(size: Float, bold: Boolean, color: Int) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -157,7 +157,7 @@ object PdfMaker {
         y += 10f
         if (e.declaration) {
             val body = paint(11f, false, INK); val bold = paint(11f, true, INK)
-            val me = Store.myName.ifBlank { "________________________" }
+            val me = Store.myName.ifBlank { "________________________" } + (if (Store.myEmail.isNotBlank()) " (" + Store.myEmail + ")" else "")
             val text = listOf(
                 "Io sottoscritto/a $me dichiaro che il documento di spesa relativo alla spesa sopra indicata non è disponibile.",
                 "Esercente: " + e.place.ifBlank { "-" } + ". Data: " + Fmt.dmy(e.date) + ". Importo: " + Fmt.money(e.charged) + " " + e.currency + (if (e.card.isNotBlank()) ", pagato con " + e.card else "") + ".",
@@ -255,7 +255,7 @@ object PdfMaker {
         val fill = android.graphics.Path()
         pts.forEachIndexed { i, p -> if (i == 0) { path.moveTo(px(i), py(p.value)); fill.moveTo(px(i), bottom); fill.lineTo(px(i), py(p.value)) } else { path.lineTo(px(i), py(p.value)); fill.lineTo(px(i), py(p.value)) } }
         fill.lineTo(px(n - 1), bottom); fill.close()
-        c.drawPath(fill, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x1FD6001C })
+        c.drawPath(fill, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x1FE10A1E })
         c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = RED; strokeWidth = 2f; style = Paint.Style.STROKE })
         val endP = pts.last()
         c.drawCircle(px(n - 1), py(endP.value), 3.5f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = RED })

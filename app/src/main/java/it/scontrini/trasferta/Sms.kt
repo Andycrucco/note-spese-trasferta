@@ -107,7 +107,7 @@ object Notifier {
         val text = listOf(s.merchant, s.cardLabel()).filter { it.isNotEmpty() }.joinToString(" · ")
         val n = NotificationCompat.Builder(ctx, CH)
             .setSmallIcon(R.drawable.ic_notif)
-            .setColor(0xFFD6001C.toInt())
+            .setColor(0xFFE10A1E.toInt())
             .setContentTitle("Addebito " + Fmt.money(s.amount) + " " + s.currency)
             .setContentText((if (text.isNotEmpty()) "$text — " else "") + "fotografa lo scontrino")
             .setStyle(NotificationCompat.BigTextStyle().bigText((if (text.isNotEmpty()) "$text\n" else "") + "Tocca per fotografare lo scontrino e abbinarlo."))

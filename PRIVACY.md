@@ -11,6 +11,12 @@ Note spese trasferta è un'app personale per raccogliere gli scontrini delle tra
 - **Nome per i commensali:** il nome che scrivi nelle Impostazioni viene mostrato in un QR, trasmesso via NFC o via Bluetooth/Wi-Fi (Google Nearby) ai telefoni vicini solo mentre la finestra "Sono a tavola" è attiva.
 - **Dati economici pubblici:** l'app scarica l'indice dei prezzi della Banca Mondiale (api.worldbank.org) e i cambi di riferimento BCE (api.frankfurter.dev). Queste richieste contengono solo il paese, la valuta e la data, nessun dato personale.
 
+## Sicurezza
+- I dati dell'app (spese, addebiti, profilo) sono cifrati con una chiave AES-256 custodita nel Keystore di Android, che non lascia mai il telefono.
+- L'app può essere bloccata con impronta, volto o PIN del telefono (Profilo e sicurezza).
+- Il profilo (nome ed email) resta sul telefono; se scegli un account Google, l'app ne legge solo l'indirizzo email, senza accedere all'account.
+- I dati dell'app sono esclusi dal backup automatico di Android.
+
 ## Condivisione
 L'app non vende né condivide dati con terzi. PDF, foto e file CSV escono dal telefono solo quando li condividi tu (per esempio su OneDrive o via email).
 

@@ -30,7 +30,7 @@ fun Context.txt(s: CharSequence, size: Float = 15f, color: Int = R.color.ink, bo
         if (bold) setTypeface(typeface, Typeface.BOLD)
     }
 
-fun Context.cap(s: String): TextView = txt(s.uppercase(), 11.5f, R.color.ink2).apply { letterSpacing = 0.07f }
+fun Context.cap(s: String): TextView = txt(s.uppercase(), 11.5f, R.color.red, true).apply { letterSpacing = 0.1f }
 
 fun Context.mono(s: CharSequence, size: Float = 15f, color: Int = R.color.ink, bold: Boolean = false): TextView =
     txt(s, size, color, bold).apply { typeface = Typeface.create(Typeface.MONOSPACE, if (bold) Typeface.BOLD else Typeface.NORMAL) }
@@ -38,9 +38,12 @@ fun Context.mono(s: CharSequence, size: Float = 15f, color: Int = R.color.ink, b
 fun Context.btn(s: String, primary: Boolean = true, onClick: (View) -> Unit): MaterialButton {
     val b = if (primary) MaterialButton(this)
     else MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-        setTextColor(col(R.color.ink)); strokeColor = ColorStateList.valueOf(col(R.color.line))
+        setTextColor(col(R.color.ink)); strokeColor = ColorStateList.valueOf(0x66FFFFFF)
+        strokeWidth = dp(1)
     }
+    if (primary) { b.setBackgroundColor(col(R.color.red)); b.setTextColor(0xFFFFFFFF.toInt()) }
     b.text = s; b.isAllCaps = false; b.textSize = 15f
+    b.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     b.minHeight = dp(52); b.insetTop = 0; b.insetBottom = 0
     b.cornerRadius = dp(8)
     b.setOnClickListener(onClick)
@@ -67,7 +70,7 @@ fun Context.input(hint: String, type: Int = InputType.TYPE_CLASS_TEXT or InputTy
 
 /** Etichetta piccola sopra un campo. */
 fun Context.field(label: String, view: View): LinearLayout = vbox().apply {
-    addView(cap(label))
+    addView(txt(label.uppercase(), 11f, R.color.ink2).apply { letterSpacing = 0.07f })
     addView(view, lp())
 }
 

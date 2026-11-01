@@ -20,8 +20,10 @@ App personale per le note spese di viaggio: legge gli SMS di addebito della banc
 - **Cartella per Ztravel**: `Download/NoteSpese/NoteSpese_<trasferta>/` con, in ordine cronologico, `001_<nome>.pdf` e `001_<nome>.jpg` per ogni scontrino e `Riepilogo_Ztravel.csv` (N., data, ora, tipo spesa, importi, mance, carta, commensali, persone, paese, allegati, verifica banca). La stessa cartella viene impacchettata in ZIP da inviare a OneDrive.
 - **Logo aziendale**: dal menu ⋮ → Impostazioni → *Scegli logo aziendale* puoi caricare il file ufficiale del logo; compare in testata e sui PDF.
 
-## Privacy
+## Privacy e sicurezza
 - Dati, foto e PDF restano sul telefono.
+- **Profilo e blocco**: al primo avvio crei il profilo (nome, email scritta o scelta tra gli account Google del telefono) e puoi proteggere l'app con impronta, volto o PIN; dopo 5 minuti in background chiede di nuovo lo sblocco.
+- **Dati cifrati** con chiave AES-256 del Keystore di Android; esclusi dal backup automatico.
 - La posizione viene inviata solo al servizio pubblico OpenStreetMap (Overpass) per trovare il locale più vicino; si può disattivare in Impostazioni.
 - I dati sull'inflazione vengono scaricati dalla Banca Mondiale (api.worldbank.org) e conservati sul telefono per 30 giorni.
 - "Sono a tavola" annuncia solo il nome che scrivi in Impostazioni, solo mentre è attivo, solo ai telefoni vicini con l'app.
