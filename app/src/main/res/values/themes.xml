@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Rosso e grafite, come l'organizzatore note spese aziendale -->
+    <color name="red">#D6001C</color>
+    <color name="red_dark">#A30016</color>
+    <color name="graphite">#141518</color>
+    <color name="surface">#1D1F23</color>
+    <color name="surface_high">#272A2F</color>
+    <color name="line">#3A3E45</color>
+    <color name="ink">#F2F3F5</color>
+    <color name="ink2">#A9AEB6</color>
+    <color name="ok">#4CC38A</color>
+    <color name="warn">#F0B35A</color>
+    <color name="ic_bg">#D6001C</color>
+
+    <style name="Theme.Scontrini" parent="Theme.Material3.Dark">
+        <item name="colorPrimary">@color/red</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorPrimaryContainer">@color/red_dark</item>
+        <item name="colorOnPrimaryContainer">#FFFFFF</item>
+        <item name="colorSecondary">@color/red</item>
+        <item name="colorOnSecondary">#FFFFFF</item>
+        <item name="android:colorBackground">@color/graphite</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorSurfaceContainer">@color/surface</item>
+        <item name="colorSurfaceContainerHigh">@color/surface_high</item>
+        <item name="colorOnSurface">@color/ink</item>
+        <item name="colorOnSurfaceVariant">@color/ink2</item>
+        <item name="colorOutline">@color/line</item>
+        <item name="android:statusBarColor">@color/graphite</item>
+        <item name="android:navigationBarColor">@color/graphite</item>
+        <item name="actionBarStyle">@style/Scontrini.ActionBar</item>
+    </style>
+
+    <style name="Scontrini.ActionBar" parent="Widget.Material3.ActionBar.Solid">
+        <item name="background">@color/graphite</item>
+        <item name="titleTextStyle">@style/Scontrini.ActionBarTitle</item>
+    </style>
+
+    <style name="Scontrini.ActionBarTitle" parent="TextAppearance.Material3.TitleLarge">
+        <item name="android:textColor">@color/ink</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+</resources>

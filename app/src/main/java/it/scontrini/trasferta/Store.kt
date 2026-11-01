@@ -1,0 +1,153 @@
+package it.scontrini.trasferta
+
+import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.util.Calendar
+
+private fun JSONObject.optStr(k: String): String? = if (!has(k) || isNull(k)) null else getString(k).ifEmpty { null }
+
+/** Tutti i dati restano sul telefono, in un file JSON dell'app. */
+object Store {
+    val expenses = mutableListOf<Expense>()
+    val sms = mutableListOf<SmsCharge>()
+    var trip = ""
+    var currency = "MXN"
+    var senders = ""
+    var myName = ""
+    var useLocation = true
+    /** massimale pasto per persona, nella valuta e nell'anno indicati, rivalutato con il CPI */
+    var capAmount = 0.0
+    var capCurrency = ""
+    var capYear = 0
+    val tableSeen = HashMap<String, Long>()
+    /** pagina da cui i colleghi senza app la scaricano (si apre dal QR o dall'NFC) */
+    var downloadUrl = DEFAULT_DOWNLOAD
+    const val DEFAULT_DOWNLOAD = "https://github.com/Andycrucco/note-spese-trasferta/releases/latest"
+    private var loaded = false
+
+    private fun file(ctx: Context) = File(ctx.filesDir, "data.json")
+    fun logoFile(ctx: Context) = File(ctx.filesDir, "logo.png")
+    fun photoDir(ctx: Context) = File(ctx.filesDir, "photos").apply { mkdirs() }
+    fun pdfDir(ctx: Context) = File(ctx.filesDir, "pdf").apply { mkdirs() }
+
+    fun defaultTrip(): String {
+        val c = Calendar.getInstance()
+        return "Trasferta " + MESI[c.get(Calendar.MONTH)] + " " + c.get(Calendar.YEAR)
+    }
+
+    fun newId(prefix: String): String =
+        prefix + System.currentTimeMillis().toString(36) + (Math.random() * 1_000_000).toInt().toString(36)
+
+    @Synchronized
+    fun load(ctx: Context) {
+        if (loaded) return
+        expenses.clear(); sms.clear(); tableSeen.clear()
+        val f = file(ctx)
+        if (f.exists()) {
+            try {
+                val o = JSONObject(f.readText())
+                o.optJSONArray("expenses")?.let { a -> for (i in 0 until a.length()) expenses.add(expFrom(a.getJSONObject(i))) }
+                o.optJSONArray("sms")?.let { a -> for (i in 0 until a.length()) sms.add(smsFrom(a.getJSONObject(i))) }
+                trip = o.optString("trip", "")
+                currency = o.optString("currency", "MXN").ifEmpty { "MXN" }
+                senders = o.optString("senders", "")
+                myName = o.optString("myName", "")
+                useLocation = o.optBoolean("useLocation", true)
+                capAmount = o.optDouble("capAmount", 0.0)
+                capCurrency = o.optString("capCurrency", "")
+                capYear = o.optInt("capYear", 0)
+                downloadUrl = o.optString("downloadUrl", DEFAULT_DOWNLOAD).ifBlank { DEFAULT_DOWNLOAD }
+                o.optJSONObject("tableSeen")?.let { t -> t.keys().forEach { k -> tableSeen[k] = t.optLong(k) } }
+            } catch (e: Exception) {
+                try { f.copyTo(File(ctx.filesDir, "data.rotto.json"), overwrite = true) } catch (_: Exception) {}
+            }
+        }
+        if (trip.isBlank()) trip = defaultTrip()
+        loaded = true
+    }
+
+    @Synchronized
+    fun reload(ctx: Context) { loaded = false; load(ctx) }
+
+    @Synchronized
+    fun save(ctx: Context) {
+        val o = JSONObject()
+        o.put("expenses", JSONArray().apply { expenses.forEach { put(expTo(it)) } })
+        o.put("sms", JSONArray().apply { sms.forEach { put(smsTo(it)) } })
+        o.put("trip", trip); o.put("currency", currency); o.put("senders", senders)
+        o.put("myName", myName); o.put("useLocation", useLocation)
+        o.put("capAmount", capAmount); o.put("capCurrency", capCurrency); o.put("capYear", capYear)
+        o.put("downloadUrl", downloadUrl)
+        val cut = System.currentTimeMillis() - 30L * 86_400_000L
+        o.put("tableSeen", JSONObject().apply { tableSeen.filter { it.value >= cut }.forEach { (k, v) -> put(k, v) } })
+        val tmp = File(ctx.filesDir, "data.tmp")
+        tmp.writeText(o.toString())
+        if (!tmp.renameTo(file(ctx))) { file(ctx).writeText(o.toString()); tmp.delete() }
+    }
+
+    fun expense(id: String?): Expense? = expenses.find { it.id == id }
+    fun smsById(id: String?): SmsCharge? = sms.find { it.id == id }
+
+    fun pending(): List<SmsCharge> = Match.pending(expenses, sms)
+    fun match(): Match.Result = Match.all(expenses, sms)
+
+    /**
+     * Commensali consigliati: prima chi hai visto al tavolo con "Sono a tavola" nelle ultime 3 ore,
+     * poi un punteggio che somma frequenza storica e recenza (peso dimezzato ogni 7 giorni),
+     * con un piccolo vantaggio per chi è già stato a tavola con te in questa trasferta.
+     */
+    fun knownGuests(): List<String> {
+        val now = System.currentTimeMillis()
+        val score = HashMap<String, Pair<String, Double>>()
+        for (e in expenses) {
+            val ts = if (e.created > 0) e.created else now
+            val ageDays = (now - ts) / 86_400_000.0
+            val w = 1.0 + 2.0 * Math.pow(0.5, ageDays / 7.0) + (if (e.trip == trip) 1.0 else 0.0)
+            for (g in e.guests) {
+                val k = g.lowercase()
+                score[k] = (score[k]?.first ?: g) to ((score[k]?.second ?: 0.0) + w)
+            }
+        }
+        val table = Table.recentNames()
+        val rest = score.values.sortedByDescending { it.second }.map { it.first }
+            .filter { n -> table.none { it.equals(n, true) } }
+        return (table + rest).take(12)
+    }
+
+    fun knownCards(): List<String> = expenses.map { it.card }.filter { it.isNotBlank() }.distinct().take(8)
+
+    private fun expTo(e: Expense) = JSONObject().apply {
+        put("id", e.id); put("trip", e.trip); put("date", e.date); put("place", e.place)
+        put("amount", e.amount); put("tip", e.tip); put("currency", e.currency); put("card", e.card)
+        put("category", e.category); put("guests", JSONArray(e.guests))
+        put("pdf", e.pdf ?: JSONObject.NULL); put("photo", e.photo ?: JSONObject.NULL)
+        put("bankId", e.bankId ?: JSONObject.NULL); put("created", e.created)
+        put("time", e.time); put("tipCash", e.tipCash)
+        put("lat", e.lat ?: JSONObject.NULL); put("lon", e.lon ?: JSONObject.NULL)
+        put("country", e.country); put("poi", e.poi); put("catReason", e.catReason)
+    }
+
+    private fun expFrom(o: JSONObject) = Expense(
+        id = o.getString("id"), trip = o.optString("trip"), date = o.optString("date"), place = o.optString("place"),
+        amount = o.optDouble("amount", 0.0), tip = o.optDouble("tip", 0.0), currency = o.optString("currency"),
+        card = o.optString("card"), category = Categorizer.migrate(o.optString("category", "Altro"), o.optString("time")),
+        guests = o.optJSONArray("guests")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
+        pdf = o.optStr("pdf"), photo = o.optStr("photo"), bankId = o.optStr("bankId"), created = o.optLong("created", 0L),
+        time = o.optString("time"), tipCash = o.optDouble("tipCash", 0.0),
+        lat = if (o.isNull("lat")) null else o.optDouble("lat"), lon = if (o.isNull("lon")) null else o.optDouble("lon"),
+        country = o.optString("country"), poi = o.optString("poi"), catReason = o.optString("catReason")
+    )
+
+    private fun smsTo(s: SmsCharge) = JSONObject().apply {
+        put("id", s.id); put("date", s.date); put("amount", s.amount); put("currency", s.currency)
+        put("merchant", s.merchant); put("card", s.card); put("network", s.network); put("created", s.created)
+    }
+
+    private fun smsFrom(o: JSONObject) = SmsCharge(
+        id = o.getString("id"), date = o.optString("date"), amount = o.optDouble("amount", 0.0),
+        currency = o.optString("currency"), merchant = o.optString("merchant"), card = o.optString("card"),
+        network = o.optString("network"), created = o.optLong("created", 0L)
+    )
+}

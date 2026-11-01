@@ -1,0 +1,50 @@
+name: Compila APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      # facoltativo: chiave di firma privata (base64) salvata nei Secrets del repository
+      KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Chiave di firma dai Secrets (se presente)
+        if: env.KEYSTORE_B64 != ''
+        run: echo "$KEYSTORE_B64" | base64 -d > signing/app.keystore
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Compila
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Rinomina APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk NoteSpeseTrasferta.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NoteSpeseTrasferta-apk
+          path: NoteSpeseTrasferta.apk
+
+      - name: Pubblica come release scaricabile
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Note spese trasferta 1.0.${{ github.run_number }}
+          files: NoteSpeseTrasferta.apk
+          make_latest: true

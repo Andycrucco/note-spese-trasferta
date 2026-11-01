@@ -1,0 +1,397 @@
+package it.scontrini.trasferta
+
+import android.content.ClipData
+import android.content.ContentValues
+import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Typeface
+import android.graphics.pdf.PdfDocument
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import androidx.core.content.FileProvider
+import androidx.exifinterface.media.ExifInterface
+import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+import kotlin.math.max
+import kotlin.math.min
+
+object Images {
+    /** Apre la foto (fotocamera, galleria o Google Foto), la raddrizza e la riduce a 2000 px. */
+    fun load(ctx: Context, uri: Uri, maxSide: Int = 2000): Bitmap? {
+        val cr = ctx.contentResolver
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        cr.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxSide) sample *= 2
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        var bmp = cr.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) } ?: return null
+        val orientation = try {
+            cr.openInputStream(uri)?.use { ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) }
+                ?: ExifInterface.ORIENTATION_NORMAL
+        } catch (e: Exception) { ExifInterface.ORIENTATION_NORMAL }
+        val m = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> m.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> m.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> m.postRotate(270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> m.postScale(-1f, 1f)
+        }
+        val s = min(1f, maxSide.toFloat() / max(bmp.width, bmp.height))
+        if (s < 1f) m.postScale(s, s)
+        if (!m.isIdentity) bmp = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
+        return bmp
+    }
+
+    fun saveJpeg(bmp: Bitmap, f: File) {
+        f.parentFile?.mkdirs()
+        f.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+    }
+}
+
+object PdfMaker {
+    private const val W = 595
+    private const val H = 842
+    private const val M = 40f
+    private const val INK = 0xFF16191E.toInt()
+    private const val INK2 = 0xFF5E6570.toInt()
+    private const val RED = 0xFFD6001C.toInt()
+    private const val LINE = 0xFFD5DAE0.toInt()
+
+    private fun paint(size: Float, bold: Boolean, color: Int) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = size; this.color = color
+        typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+    }
+
+    private fun wrap(text: String, p: Paint, width: Float, maxLines: Int): List<String> {
+        val out = mutableListOf<String>(); var line = ""
+        for (w in text.split(" ")) {
+            val t = if (line.isEmpty()) w else "$line $w"
+            if (p.measureText(t) <= width) line = t else { if (line.isNotEmpty()) out.add(line); line = w }
+            if (out.size >= maxLines) break
+        }
+        if (line.isNotEmpty() && out.size < maxLines) out.add(line)
+        return out
+    }
+
+    private fun header(ctx: Context, c: Canvas, title: String): Float {
+        c.drawRect(0f, 0f, W.toFloat(), 6f, Paint().apply { color = RED })
+        var titleW = W - 2 * M
+        val logoF = Store.logoFile(ctx)
+        if (logoF.exists()) {
+            BitmapFactory.decodeFile(logoF.absolutePath)?.let { logo ->
+                val lw = min(150f, logo.width * 34f / logo.height)
+                val lh = logo.height * lw / logo.width
+                c.drawBitmap(logo, null, RectF(W - M - lw, M - 8f, W - M, M - 8f + lh), Paint(Paint.FILTER_BITMAP_FLAG))
+                titleW -= lw + 16f
+            }
+        }
+        val tp = paint(19f, true, INK)
+        var y = M + 14f
+        for (l in wrap(title, tp, titleW, 2)) { c.drawText(l, M, y, tp); y += 24f }
+        return y + 8f
+    }
+
+    /** Pagina 1: dati e foto. Per i pasti, pagina 2: inflazione del paese (Banca Mondiale). */
+    fun make(ctx: Context, e: Expense, photo: Bitmap?, cpi: Cpi.Series? = null, cpiCountry: String = ""): File {
+        val doc = PdfDocument()
+        page1(ctx, doc, e, photo)
+        if (e.isMeal) page2(ctx, doc, e, cpi, cpiCountry)
+        val f = File(Store.pdfDir(ctx), e.pdfName())
+        f.outputStream().use { doc.writeTo(it) }
+        doc.close()
+        return f
+    }
+
+    private fun page1(ctx: Context, doc: PdfDocument, e: Expense, photo: Bitmap?) {
+        val page = doc.startPage(PdfDocument.PageInfo.Builder(W, H, 1).create())
+        val c = page.canvas
+        val cw = W - 2 * M
+        var y = header(ctx, c, e.place.ifBlank { "Scontrino" })
+        val label = paint(8f, false, INK2).apply { letterSpacing = 0.08f }
+        val value = paint(11.5f, true, INK)
+        val cu = " " + e.currency
+        val rows = mutableListOf(
+            "DATA" to (Fmt.dmy(e.date).ifEmpty { "-" } + if (e.time.isNotEmpty()) "  " + e.time else ""),
+            "CATEGORIA" to e.category,
+            "IMPORTO SCONTRINO" to Fmt.money(e.amount) + cu,
+            "CARTA" to e.card.ifBlank { "-" }
+        )
+        if (e.tip > 0) rows.add("MANCIA SU SCONTRINO / CARTA" to Fmt.money(e.tip) + cu)
+        if (e.tipCash > 0) rows.add("MANCIA IN CONTANTI A TAVOLA" to Fmt.money(e.tipCash) + cu)
+        if (e.tipTotal > 0) {
+            rows.add("MANCIA TOTALE" to Fmt.money(e.tipTotal) + cu + "  (" + String.format(java.util.Locale.ITALY, "%.1f", e.tipPct()) + "% del conto)")
+            if (e.people > 1) rows.add("MANCIA A PERSONA" to Fmt.money(e.tipTotal / e.people) + cu + "  (" + e.people + " persone)")
+        }
+        rows.add("TOTALE SPESO" to Fmt.money(e.total) + cu)
+        if (e.people > 1) rows.add("TOTALE A PERSONA" to Fmt.money(e.total / e.people) + cu)
+        rows.add("TRASFERTA" to e.trip.ifBlank { "-" })
+        if (e.poi.isNotEmpty() || e.country.isNotEmpty()) rows.add("LUOGO DELLA FOTO" to listOf(e.poi, e.country).filter { it.isNotEmpty() }.joinToString(" · "))
+        val colW = cw / 2
+        rows.forEachIndexed { i, (k, v) ->
+            val x = M + (i % 2) * colW; val yy = y + (i / 2) * 30f
+            c.drawText(k, x, yy, label)
+            c.drawText(wrap(v, value, colW - 10f, 1).firstOrNull() ?: v, x, yy + 14f, value)
+        }
+        y += ((rows.size + 1) / 2) * 30f + 4f
+        if (e.guests.isNotEmpty()) {
+            c.drawText("COMMENSALI (" + e.people + " PERSONE, ME COMPRESO)", M, y, label)
+            y += 14f
+            for (l in wrap(e.guests.joinToString(", "), value, cw, 3)) { c.drawText(l, M, y, value); y += 14f }
+            y += 4f
+        }
+        if (e.catReason.isNotEmpty()) {
+            for (l in wrap("Categoria assegnata da: " + e.catReason, paint(8.5f, false, INK2), cw, 2)) { c.drawText(l, M, y, paint(8.5f, false, INK2)); y += 11f }
+        }
+        c.drawLine(M, y, W - M, y, Paint().apply { color = LINE; strokeWidth = 1f })
+        y += 10f
+        if (photo != null) {
+            val availH = H - M - y
+            val s = min(cw / photo.width, availH / photo.height)
+            val iw = photo.width * s; val ih = photo.height * s
+            val x = M + (cw - iw) / 2
+            c.drawBitmap(photo, null, RectF(x, y, x + iw, y + ih), Paint(Paint.FILTER_BITMAP_FLAG))
+        } else {
+            c.drawText("Foto dello scontrino non disponibile", M, y + 14f, paint(10f, false, INK2))
+        }
+        doc.finishPage(page)
+    }
+
+    private fun page2(ctx: Context, doc: PdfDocument, e: Expense, cpi: Cpi.Series?, iso: String) {
+        val page = doc.startPage(PdfDocument.PageInfo.Builder(W, H, 2).create())
+        val c = page.canvas
+        val cw = W - 2 * M
+        var y = header(ctx, c, "Inflazione: " + (cpi?.name ?: iso.ifEmpty { "paese non determinato" }))
+        val small = paint(9f, false, INK2); val body = paint(11f, false, INK); val bold = paint(11f, true, INK)
+        c.drawText("Indice dei prezzi al consumo (2010 = 100) · Banca Mondiale, indicatore FP.CPI.TOTL (fonte FMI)", M, y, small)
+        y += 18f
+        if (cpi == null || cpi.points.size < 3) {
+            for (l in wrap("Dati della Banca Mondiale non disponibili per questo paese o senza connessione. Apri la spesa quando sei online e ricrea il PDF.", body, cw, 4)) { c.drawText(l, M, y, body); y += 15f }
+            doc.finishPage(page); return
+        }
+        val pts = cpi.points.filter { it.year >= cpi.points.last().year - 15 }
+        val last = pts.last()
+        val yearSpent = e.date.take(4).toIntOrNull() ?: last.year
+
+        // grafico a linea dell'indice
+        y = lineChart(c, pts, M, y + 6f, cw, 210f) + 26f
+        // inflazione annua
+        val yy = CpiMath.yoy(pts)
+        c.drawText("INFLAZIONE ANNUA (%)", M, y, paint(8f, false, INK2).apply { letterSpacing = 0.08f })
+        y = barChart(c, yy, M, y + 8f, cw, 150f) + 26f
+
+        // sintesi
+        val lines = mutableListOf<Pair<String, Boolean>>()
+        lines.add(("Ultimo dato disponibile: " + last.year + ", indice " + String.format(java.util.Locale.ITALY, "%.1f", last.value) + ".") to true)
+        yy.lastOrNull()?.let { lines.add(("Inflazione " + it.first + ": " + String.format(java.util.Locale.ITALY, "%.1f", it.second) + "%.") to false) }
+        for (from in listOf(last.year - 5, 2015, 2010).distinct().filter { it < last.year }) {
+            CpiMath.cumulative(pts + cpi.points, from, last.year)?.let {
+                lines.add(("Dal $from al ${last.year} i prezzi sono saliti del " + String.format(java.util.Locale.ITALY, "%.1f", it) + "%.") to false)
+            }
+        }
+        if (yearSpent > last.year) lines.add(("La spesa è del $yearSpent: la Banca Mondiale non ha ancora pubblicato il dato di quell'anno.") to false)
+        val capOk = Store.capAmount > 0 && Store.capYear > 0 && Store.capCurrency.equals(e.currency, true)
+        if (capOk) {
+            CpiMath.revalue(Store.capAmount, Store.capYear, cpi.points)?.let { (cap, yr) ->
+                val perHead = e.total / e.people
+                val within = perHead <= cap + 0.005
+                lines.add(("Massimale pasto: " + Fmt.money(Store.capAmount) + " " + e.currency + " (" + Store.capYear + "), rivalutato al $yr: " + Fmt.money(cap) + " " + e.currency + " a persona.") to true)
+                lines.add(("Questo pasto: " + Fmt.money(perHead) + " " + e.currency + " a persona (" + e.people + " persone) → " + (if (within) "entro il massimale." else "oltre il massimale di " + Fmt.money(perHead - cap) + ".")) to true)
+            }
+        }
+        for ((t, b) in lines) for (l in wrap(t, if (b) bold else body, cw, 3)) { c.drawText(l, M, y, if (b) bold else body); y += 15f }
+        y += 8f
+        val upd = if (cpi.lastUpdated.isNotEmpty()) "aggiornamento Banca Mondiale " + cpi.lastUpdated + ", " else ""
+        c.drawText("Fonte: data.worldbank.org/indicator/FP.CPI.TOTL · " + upd + "scaricato il " + Fmt.isoOf(cpi.fetchedAt), M, y, small)
+        doc.finishPage(page)
+    }
+
+    private fun lineChart(c: Canvas, pts: List<CpiPoint>, x: Float, y: Float, w: Float, h: Float): Float {
+        val left = x + 34f; val bottom = y + h - 16f; val top = y + 6f; val right = x + w - 6f
+        val minV = pts.minOf { it.value }; val maxV = pts.maxOf { it.value }
+        val lo = Math.floor(minV / 10) * 10; val hi = Math.ceil(maxV / 10) * 10
+        val span = (hi - lo).coerceAtLeast(1.0)
+        val grid = Paint().apply { color = LINE; strokeWidth = 0.6f }
+        val lab = paint(7.5f, false, INK2)
+        val steps = 4
+        for (i in 0..steps) {
+            val v = lo + span * i / steps
+            val yy = (bottom - (v - lo) / span * (bottom - top)).toFloat()
+            c.drawLine(left, yy, right, yy, grid)
+            c.drawText(String.format(java.util.Locale.ITALY, "%.0f", v), x, yy + 3f, lab)
+        }
+        val n = pts.size
+        fun px(i: Int) = left + (right - left) * i / (n - 1).coerceAtLeast(1)
+        fun py(v: Double) = (bottom - (v - lo) / span * (bottom - top)).toFloat()
+        val path = android.graphics.Path()
+        val fill = android.graphics.Path()
+        pts.forEachIndexed { i, p -> if (i == 0) { path.moveTo(px(i), py(p.value)); fill.moveTo(px(i), bottom); fill.lineTo(px(i), py(p.value)) } else { path.lineTo(px(i), py(p.value)); fill.lineTo(px(i), py(p.value)) } }
+        fill.lineTo(px(n - 1), bottom); fill.close()
+        c.drawPath(fill, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x1FD6001C })
+        c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = RED; strokeWidth = 2f; style = Paint.Style.STROKE })
+        val endP = pts.last()
+        c.drawCircle(px(n - 1), py(endP.value), 3.5f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = RED })
+        val endLabel = String.format(java.util.Locale.ITALY, "%.1f", endP.value)
+        val ep = paint(8.5f, true, INK)
+        c.drawText(endLabel, (px(n - 1) - ep.measureText(endLabel)).coerceAtLeast(left), py(endP.value) - 7f, ep)
+        pts.forEachIndexed { i, p -> if (i % 3 == 0 || i == n - 1) { val t = p.year.toString(); c.drawText(t, px(i) - lab.measureText(t) / 2, bottom + 11f, lab) } }
+        return y + h
+    }
+
+    private fun barChart(c: Canvas, data: List<Pair<Int, Double>>, x: Float, y: Float, w: Float, h: Float): Float {
+        if (data.isEmpty()) return y
+        val left = x + 34f; val right = x + w - 6f; val top = y + 12f; val bottom = y + h - 16f
+        val hi = Math.ceil(data.maxOf { it.second }.coerceAtLeast(0.0) / 2) * 2
+        val lo = Math.floor(data.minOf { it.second }.coerceAtMost(0.0) / 2) * 2
+        val span = (hi - lo).coerceAtLeast(1.0)
+        fun py(v: Double) = (bottom - (v - lo) / span * (bottom - top)).toFloat()
+        val lab = paint(7.5f, false, INK2)
+        c.drawLine(left, py(0.0), right, py(0.0), Paint().apply { color = INK2; strokeWidth = 0.6f })
+        c.drawText(String.format(java.util.Locale.ITALY, "%.0f", hi), x, py(hi) + 3f, lab)
+        c.drawText("0", x, py(0.0) + 3f, lab)
+        val n = data.size; val slot = (right - left) / n; val bw = slot * 0.62f
+        val bar = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF8A9099.toInt() }
+        val barLast = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = RED }
+        val val8 = paint(7f, false, INK)
+        data.forEachIndexed { i, (yr, v) ->
+            val cx = left + slot * i + slot / 2
+            val y0 = py(0.0); val y1 = py(v)
+            c.drawRect(cx - bw / 2, min(y0, y1), cx + bw / 2, max(y0, y1), if (i == n - 1) barLast else bar)
+            val t = String.format(java.util.Locale.ITALY, "%.1f", v)
+            c.drawText(t, cx - val8.measureText(t) / 2, if (v >= 0) y1 - 3f else y1 + 9f, val8)
+            if (i % 2 == (n - 1) % 2) { val ys = yr.toString(); c.drawText(ys, cx - lab.measureText(ys) / 2, bottom + 11f, lab) }
+        }
+        return y + h
+    }
+}
+
+object Exporter {
+    private fun cell(v: String): String = if (v.contains(';') || v.contains('"') || v.contains('\n')) "\"" + v.replace("\"", "\"\"") + "\"" else v
+    private fun n(d: Double): String = Fmt.plain(d)
+
+    fun ordered(list: List<Expense>): List<Expense> =
+        list.sortedWith(compareBy<Expense>({ it.date }, { it.time.ifEmpty { "99:99" } }, { it.created }))
+
+    /** CSV per Ztravel: punto e virgola, decimali con la virgola, date GG/MM/AAAA, in ordine cronologico. */
+    fun csv(list: List<Expense>, files: Map<String, Pair<String, String?>> = emptyMap()): String {
+        val m = Store.match()
+        val head = listOf("N.", "Data", "Ora", "Tipo spesa", "Descrizione", "Importo scontrino", "Mancia su scontrino",
+            "Mancia contanti a tavola", "Mancia totale", "Mancia %", "Totale speso", "Addebitato su carta", "Valuta", "Carta",
+            "Commensali", "N. persone", "Totale a persona", "Paese", "Trasferta", "Allegato PDF", "Foto", "Verificato banca", "Categoria da")
+        val sb = StringBuilder("﻿").append(head.joinToString(";")).append("\r\n")
+        ordered(list).forEachIndexed { i, e ->
+            val f = files[e.id]
+            sb.append(listOf(
+                (i + 1).toString(), Fmt.dmy(e.date), e.time, e.category, e.place, n(e.amount),
+                if (e.tip > 0) n(e.tip) else "", if (e.tipCash > 0) n(e.tipCash) else "",
+                if (e.tipTotal > 0) n(e.tipTotal) else "", if (e.tipTotal > 0) String.format(java.util.Locale.ITALY, "%.1f", e.tipPct()) else "",
+                n(e.total), n(e.charged), e.currency, e.card,
+                e.guests.joinToString(", "), e.people.toString(), n(e.total / e.people),
+                Categorizer.countryFor(e.country, e.currency), e.trip,
+                f?.first ?: e.pdf ?: "", f?.second ?: "", if (m.e2s.containsKey(e.id)) "Sì" else "No", e.catReason
+            ).joinToString(";") { cell(it) }).append("\r\n")
+        }
+        return sb.toString()
+    }
+
+    fun exportDir(ctx: Context) = File(ctx.cacheDir, "export").apply { mkdirs() }
+
+    /** PDF della spesa (lo crea se manca); per i pasti scarica i dati CPI se c'è internet. */
+    fun pdfFor(ctx: Context, e: Expense, rebuild: Boolean = false): File? {
+        if (!rebuild) e.pdf?.let { val f = File(Store.pdfDir(ctx), it); if (f.exists() && f.name == e.pdfName()) return f }
+        val p = e.photo?.let { File(it) }?.takeIf { it.exists() }
+        val iso = Categorizer.countryFor(e.country, e.currency)
+        val cpi = if (e.isMeal) Cpi.get(ctx, iso) else null
+        val f = PdfMaker.make(ctx, e, p?.let { BitmapFactory.decodeFile(it.absolutePath) }, cpi, iso)
+        e.pdf = f.name
+        return f
+    }
+
+    class Folder(val zip: File, val folder: String, val count: Int, val withPhoto: Int, val savedToDownloads: Boolean)
+
+    /**
+     * Cartella per Ztravel: per ogni scontrino, in ordine cronologico,
+     * 001_<nome>.pdf e 001_<nome>.jpg, più Riepilogo_Ztravel.csv.
+     * Viene scritta in Download/NoteSpese/<trasferta> e impacchettata in uno ZIP da condividere.
+     */
+    fun folder(ctx: Context, list: List<Expense>, tripLabel: String, onProgress: (Int, Int) -> Unit = { _, _ -> }): Folder {
+        val dirName = "NoteSpese_" + Fmt.slug(tripLabel, 40).ifEmpty { "trasferta" }
+        val rel = Environment.DIRECTORY_DOWNLOADS + "/NoteSpese/" + dirName
+        val zipF = File(exportDir(ctx), "$dirName.zip")
+        val files = HashMap<String, Pair<String, String?>>()
+        val items = ordered(list)
+        var ok = true; var photos = 0
+        ZipOutputStream(zipF.outputStream()).use { z ->
+            items.forEachIndexed { i, e ->
+                onProgress(i + 1, items.size)
+                val prefix = String.format(java.util.Locale.US, "%03d_", i + 1)
+                val base = prefix + e.pdfName().removeSuffix(".pdf")
+                val pdf = try { pdfFor(ctx, e) } catch (ex: Exception) { null }
+                var jpgName: String? = null
+                if (pdf != null) {
+                    z.putNextEntry(ZipEntry("$dirName/$base.pdf")); pdf.inputStream().use { it.copyTo(z) }; z.closeEntry()
+                    ok = toDownloads(ctx, pdf, "application/pdf", rel, "$base.pdf") && ok
+                }
+                e.photo?.let { File(it) }?.takeIf { it.exists() }?.let { ph ->
+                    jpgName = "$base.jpg"; photos++
+                    z.putNextEntry(ZipEntry("$dirName/$jpgName")); ph.inputStream().use { it.copyTo(z) }; z.closeEntry()
+                    ok = toDownloads(ctx, ph, "image/jpeg", rel, jpgName!!) && ok
+                }
+                files[e.id] = (if (pdf != null) "$base.pdf" else "") to jpgName
+            }
+            val csvF = File(exportDir(ctx), "Riepilogo_Ztravel.csv")
+            csvF.writeText(csv(items, files), Charsets.UTF_8)
+            z.putNextEntry(ZipEntry("$dirName/Riepilogo_Ztravel.csv")); csvF.inputStream().use { it.copyTo(z) }; z.closeEntry()
+            ok = toDownloads(ctx, csvF, "text/csv", rel, "Riepilogo_Ztravel.csv") && ok
+        }
+        try { Store.save(ctx) } catch (_: Exception) {}
+        return Folder(zipF, "Download/NoteSpese/$dirName", items.size, photos, ok && Build.VERSION.SDK_INT >= 29)
+    }
+
+    fun uri(ctx: Context, f: File): Uri = FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)
+
+    /** Apre il menu Condividi (OneDrive, mail, Teams…). */
+    fun shareIntent(ctx: Context, f: File, mime: String, title: String): Intent {
+        val u = uri(ctx, f)
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = mime
+            putExtra(Intent.EXTRA_STREAM, u)
+            putExtra(Intent.EXTRA_SUBJECT, f.nameWithoutExtension)
+            clipData = ClipData.newRawUri(f.name, u)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        return Intent.createChooser(send, title)
+    }
+
+    /** Copia in Download (sostituisce un file con lo stesso nome creato in precedenza dall'app). */
+    fun toDownloads(ctx: Context, f: File, mime: String, relPath: String = Environment.DIRECTORY_DOWNLOADS + "/Scontrini", name: String = f.name): Boolean {
+        if (Build.VERSION.SDK_INT < 29) return false
+        return try {
+            val cr = ctx.contentResolver
+            val rel = relPath.trimEnd('/') + "/"
+            try {
+                cr.delete(MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    MediaStore.Downloads.DISPLAY_NAME + "=? AND " + MediaStore.Downloads.RELATIVE_PATH + "=?", arrayOf(name, rel))
+            } catch (_: Exception) {}
+            val v = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, name)
+                put(MediaStore.Downloads.MIME_TYPE, mime)
+                put(MediaStore.Downloads.RELATIVE_PATH, rel)
+            }
+            val u = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v) ?: return false
+            cr.openOutputStream(u)?.use { out -> f.inputStream().use { it.copyTo(out) } }
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+}

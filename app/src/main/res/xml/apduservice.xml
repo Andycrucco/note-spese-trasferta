@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<host-apdu-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/nfc_desc"
+    android:requireDeviceUnlock="false">
+    <aid-group
+        android:category="other"
+        android:description="@string/nfc_desc">
+        <aid-filter android:name="F04E53545241564C" />
+        <!-- tag NFC Forum di tipo 4: i telefoni senza app aprono il link per installarla -->
+        <aid-filter android:name="D2760000850101" />
+    </aid-group>
+</host-apdu-service>
