@@ -45,7 +45,7 @@ object SmsIngest {
 
     /** Restituisce gli addebiti nuovi trovati nel messaggio. */
     @Synchronized
-    fun ingest(ctx: Context, sender: String, body: String, whenMs: Long, notify: Boolean): List<SmsCharge> {
+    fun ingest(ctx: Context, sender: String, body: String, whenMs: Long, notify: Boolean, exactTime: Boolean = true): List<SmsCharge> {
         Store.load(ctx)
         if (!accept(sender, body)) return emptyList()
         val added = mutableListOf<SmsCharge>()
@@ -53,7 +53,12 @@ object SmsIngest {
             val date = p.date.ifEmpty { Fmt.isoOf(whenMs) }
             val id = "s" + Fmt.hash(listOf(date, Fmt.dot(p.amount), p.currency, p.card, Fmt.slug(p.merchant, 20)).joinToString("|"))
             if (Store.smsById(id) != null) continue
-            val s = SmsCharge(id, date, p.amount, p.currency.ifEmpty { Store.currency }, p.merchant, p.card, p.network, System.currentTimeMillis())
+            // ora dell'addebito: dal testo; altrimenti l'ora di arrivo, se l'SMS è arrivato davvero ora sul telefono
+            val time = Fmt.time(body).ifEmpty {
+                if (exactTime && date == Fmt.isoOf(whenMs)) java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).format(java.util.Date(whenMs)) else ""
+            }
+            val s = SmsCharge(id, date, p.amount, p.currency.ifEmpty { Store.currency }, p.merchant, p.card, p.network,
+                if (exactTime) whenMs else System.currentTimeMillis(), time)
             Store.sms.add(s)
             added.add(s)
         }

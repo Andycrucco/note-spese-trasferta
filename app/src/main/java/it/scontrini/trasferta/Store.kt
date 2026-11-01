@@ -160,11 +160,13 @@ object Store {
     private fun smsTo(s: SmsCharge) = JSONObject().apply {
         put("id", s.id); put("date", s.date); put("amount", s.amount); put("currency", s.currency)
         put("merchant", s.merchant); put("card", s.card); put("network", s.network); put("created", s.created)
+        put("time", s.time)
     }
 
     private fun smsFrom(o: JSONObject) = SmsCharge(
         id = o.getString("id"), date = o.optString("date"), amount = o.optDouble("amount", 0.0),
         currency = o.optString("currency"), merchant = o.optString("merchant"), card = o.optString("card"),
-        network = o.optString("network"), created = o.optLong("created", 0L)
+        network = o.optString("network"), created = o.optLong("created", 0L),
+        time = o.optString("time")
     )
 }

@@ -272,6 +272,7 @@ class ExpenseActivity : AppCompatActivity() {
             status.text = "Modifica i dati e salva."
         } else if (s != null) {
             if (s.date.isNotEmpty()) setDate(s.date)
+            if (s.time.isNotEmpty()) time.setText(s.time)
             place.setText(s.merchant); amount.setText(Fmt.plain(s.amount))
             if (s.currency.isNotEmpty()) cur.setText(s.currency)
             card.setText(s.cardLabel().removePrefix("carta "))

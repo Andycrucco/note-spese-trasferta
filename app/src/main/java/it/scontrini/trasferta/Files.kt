@@ -297,8 +297,8 @@ object Exporter {
     private fun cell(v: String): String = if (v.contains(';') || v.contains('"') || v.contains('\n')) "\"" + v.replace("\"", "\"\"") + "\"" else v
     private fun n(d: Double): String = Fmt.plain(d)
 
-    fun ordered(list: List<Expense>): List<Expense> =
-        list.sortedWith(compareBy<Expense>({ it.date }, { it.time.ifEmpty { "99:99" } }, { it.created }))
+    /** ordine delle transazioni in banca (vedi Numbering): si ricalcola a ogni esportazione */
+    fun ordered(list: List<Expense>): List<Expense> = Numbering.ordered(list)
 
     /** CSV per Ztravel: punto e virgola, decimali con la virgola, date GG/MM/AAAA, in ordine cronologico. */
     fun csv(list: List<Expense>, files: Map<String, Pair<String, String?>> = emptyMap()): String {
@@ -306,7 +306,7 @@ object Exporter {
         val head = listOf("N.", "Data", "Ora", "Tipo spesa", "Descrizione", "Importo scontrino", "Mancia su scontrino",
             "Mancia contanti a tavola", "Mancia totale", "Mancia %", "Totale speso", "Addebitato su carta", "Valuta", "Carta",
             "Commensali", "N. persone", "Totale a persona", "Paese", "Trasferta", "Allegato PDF", "Foto", "Verificato banca", "Categoria da",
-            "Cambio EUR (BCE)", "Data cambio", "Totale EUR", "Dichiarazione")
+            "Cambio EUR (BCE)", "Data cambio", "Totale EUR", "Dichiarazione", "Data addebito banca")
         val sb = StringBuilder("﻿").append(head.joinToString(";")).append("\r\n")
         ordered(list).forEachIndexed { i, e ->
             val f = files[e.id]
@@ -319,7 +319,8 @@ object Exporter {
                 Categorizer.countryFor(e.country, e.currency), e.trip,
                 f?.first ?: e.pdf ?: "", f?.second ?: "", if (m.e2s.containsKey(e.id)) "Sì" else "No", e.catReason,
                 e.eurRate?.let { String.format(java.util.Locale.ITALY, "%.6f", it) } ?: "", Fmt.dmy(e.eurDate),
-                e.totalEur?.let { n(it) } ?: "", if (e.declaration) "Sì" else ""
+                e.totalEur?.let { n(it) } ?: "", if (e.declaration) "Sì" else "",
+                Fmt.dmy(Numbering.bankDate(e, m))
             ).joinToString(";") { cell(it) }).append("\r\n")
         }
         return sb.toString()
@@ -353,6 +354,8 @@ object Exporter {
         val items = ordered(list)
         try { Fx.fill(ctx, items) } catch (_: Exception) {}
         var ok = true; var photos = 0
+        // la numerazione può essere cambiata (SMS aggiunti dopo): tolgo i file della volta scorsa
+        clearDownloads(ctx, rel)
         ZipOutputStream(zipF.outputStream()).use { z ->
             items.forEachIndexed { i, e ->
                 onProgress(i + 1, items.size)
@@ -377,6 +380,7 @@ object Exporter {
             ok = toDownloads(ctx, csvF, "text/csv", rel, "Riepilogo_Ztravel.csv") && ok
         }
         try { Store.save(ctx) } catch (_: Exception) {}
+        markExported(ctx, tripLabel, list)
         return Folder(zipF, "Download/NoteSpese/$dirName", items.size, photos, ok && Build.VERSION.SDK_INT >= 29)
     }
 
@@ -396,6 +400,31 @@ object Exporter {
     }
 
     /** Copia in Download (sostituisce un file con lo stesso nome creato in precedenza dall'app). */
+    /** Cancella i file che l'app aveva salvato in quella cartella di Download. */
+    fun clearDownloads(ctx: Context, relPath: String) {
+        if (Build.VERSION.SDK_INT < 29) return
+        try {
+            ctx.contentResolver.delete(MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                MediaStore.Downloads.RELATIVE_PATH + "=?", arrayOf(relPath.trimEnd('/') + "/"))
+        } catch (_: Exception) {}
+    }
+
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences("export", Context.MODE_PRIVATE)
+    private fun sigKey(label: String) = "sig_" + Fmt.slug(label, 60)
+
+    fun markExported(ctx: Context, label: String, list: List<Expense>) {
+        prefs(ctx).edit().putString(sigKey(label), Numbering.signature(list)).apply()
+    }
+
+    /**
+     * true se la cartella di questa trasferta era già stata esportata e da allora la numerazione
+     * è cambiata (nuovo SMS, scontrino aggiunto o modificato): va riesportata.
+     */
+    fun needsReexport(ctx: Context, label: String, list: List<Expense>): Boolean {
+        val old = prefs(ctx).getString(sigKey(label), null) ?: return false
+        return old != Numbering.signature(list)
+    }
+
     fun toDownloads(ctx: Context, f: File, mime: String, relPath: String = Environment.DIRECTORY_DOWNLOADS + "/Scontrini", name: String = f.name): Boolean {
         if (Build.VERSION.SDK_INT < 29) return false
         return try {

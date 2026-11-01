@@ -19,7 +19,7 @@ class ShareActivity : AppCompatActivity() {
         fun handle(act: Activity, text: String): Boolean {
             if (text.isBlank()) { Toast.makeText(act, "Nessun testo ricevuto.", Toast.LENGTH_LONG).show(); return false }
             Store.load(act)
-            val added = SmsIngest.ingest(act, "", text, System.currentTimeMillis(), notify = false)
+            val added = SmsIngest.ingest(act, "", text, System.currentTimeMillis(), notify = false, exactTime = false)
             val pend = Store.pending()
             val target = added.firstOrNull { s -> pend.any { it.id == s.id } } ?: pend.firstOrNull()
             return when {

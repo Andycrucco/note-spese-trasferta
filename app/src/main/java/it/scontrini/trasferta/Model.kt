@@ -52,7 +52,9 @@ data class SmsCharge(
     val merchant: String,
     val card: String,
     val network: String,
-    val created: Long
+    val created: Long,
+    /** ora dell'addebito (dal testo dell'SMS o dall'ora di arrivo), "" se non nota */
+    val time: String = ""
 ) {
     fun cardLabel(): String = when {
         network.isNotEmpty() && card.isNotEmpty() -> "$network $card"
@@ -63,6 +65,36 @@ data class SmsCharge(
 }
 
 /** Abbinamento tra scontrini e addebiti della banca. Funzioni pure sulle liste. */
+/**
+ * Numerazione degli scontrini nell'ordine delle transazioni in banca.
+ * Non viene salvata: si ricalcola a ogni apertura ed esportazione, così un SMS aggiunto dopo
+ * (anche giorni dopo) rimette tutto in ordine da solo.
+ * Ordine: data dell'addebito in banca (o dello scontrino se non abbinato), poi ora dell'addebito
+ * (o dello scontrino), poi momento di registrazione.
+ */
+object Numbering {
+    fun ordered(list: List<Expense>, m: Match.Result = Store.match(), sms: List<SmsCharge> = Store.sms): List<Expense> {
+        val byId = sms.associateBy { it.id }
+        fun s(e: Expense) = m.e2s[e.id]?.let { byId[it] }
+        return list.sortedWith(compareBy<Expense>(
+            { s(it)?.date?.ifEmpty { null } ?: it.date },
+            { s(it)?.time?.ifEmpty { null } ?: it.time.ifEmpty { "99:99" } },
+            { s(it)?.created ?: Long.MAX_VALUE },
+            { it.created }
+        ))
+    }
+
+    fun numbers(list: List<Expense>): Map<String, Int> =
+        ordered(list).mapIndexed { i, e -> e.id to i + 1 }.toMap()
+
+    /** impronta dell'ordine attuale: cambia quando cambia la numerazione */
+    fun signature(list: List<Expense>): String =
+        ordered(list).joinToString(",") { it.id }
+
+    fun bankDate(e: Expense, m: Match.Result = Store.match()): String =
+        m.e2s[e.id]?.let { id -> Store.sms.firstOrNull { it.id == id }?.date } ?: ""
+}
+
 object Match {
     class Result(
         val e2s: Map<String, String>,

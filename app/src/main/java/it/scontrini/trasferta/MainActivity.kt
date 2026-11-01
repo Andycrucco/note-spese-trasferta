@@ -386,11 +386,20 @@ class MainActivity : AppCompatActivity() {
             root.addView(btn("Crea cartella per Ztravel") { exportFolder(list) }, lp(top = dp(6)))
             root.addView(btn("Solo CSV di riepilogo", false) { exportCsv(list) }, lp(top = dp(8)))
         } else {
+            val label = v ?: Store.trip
+            if (Exporter.needsReexport(this, label, list)) {
+                val (c, inner) = card()
+                c.strokeColor = col(R.color.warn)
+                inner.addView(txt("Numerazione aggiornata", 15f, R.color.warn, true))
+                inner.addView(txt("Da quando hai esportato la cartella sono arrivati SMS o scontrini nuovi: i numeri seguono di nuovo l'ordine delle transazioni in banca. Riesporta per avere la cartella in ordine sul PC.", 13f, R.color.ink2), lp(top = dp(2)))
+                inner.addView(btn("Riesporta la cartella") { exportFolder(list) }, lp(top = dp(10)))
+                root.addView(c, lp(top = dp(12)))
+            }
             renderTotals(list)
             renderList(list)
             root.addView(cap("Esporta per Ztravel"), lp(top = dp(22)))
             root.addView(btn("Crea cartella per Ztravel") { exportFolder(list) }, lp(top = dp(6)))
-            root.addView(txt("Ogni scontrino in ordine cronologico, con foto e PDF rinominati (001_2026-03-22_CENA_…) e il riepilogo CSV. Finisce in Download/NoteSpese e puoi inviarla a OneDrive.", 12f, R.color.ink2), lp(top = dp(4)))
+            root.addView(txt("Ogni scontrino numerato nell'ordine delle transazioni in banca (001_2026-03-22_CENA_…), con foto, PDF e riepilogo CSV. Se poi aggiungi un SMS perso, i numeri si riordinano da soli: riesporta e la cartella viene rifatta. Finisce in Download/NoteSpese e puoi inviarla a OneDrive.", 12f, R.color.ink2), lp(top = dp(4)))
             root.addView(btn("Solo CSV di riepilogo", false) { exportCsv(list) }, lp(top = dp(8)))
         }
     }
@@ -439,6 +448,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderList(list: List<Expense>, hint: Boolean = true) {
         val m = Store.match()
+        val nums = Numbering.numbers(list)
+        val width = if (list.size >= 100) 3 else 2
         val byDay = list.sortedWith(compareByDescending<Expense> { it.date }.thenByDescending { it.created }).groupBy { it.date }
         for ((day, items) in byDay) {
             root.addView(cap(Fmt.dayLabel(day)), lp(top = dp(18)))
@@ -447,7 +458,10 @@ class MainActivity : AppCompatActivity() {
                 if (i > 0) inner.addView(View(this).apply { setBackgroundColor(col(R.color.line)) }, lp(h = dp(1)))
                 val r = hbox().apply { setPadding(0, dp(8), 0, dp(8)) }
                 val left = vbox()
-                left.addView(txt(e.place.ifBlank { "Senza luogo" }, 15f, bold = true))
+                val title = hbox().apply { gravity = Gravity.CENTER_VERTICAL }
+                nums[e.id]?.let { title.addView(mono(it.toString().padStart(width, '0'), 13f, R.color.red, true), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) }) }
+                title.addView(txt(e.place.ifBlank { "Senza luogo" }, 15f, bold = true), LinearLayout.LayoutParams(0, -2, 1f))
+                left.addView(title)
                 val meta = mutableListOf(e.category + (if (e.time.isNotEmpty()) " " + e.time else ""), e.card.ifBlank { "Senza carta" })
                 if (e.tipCash > 0) meta.add("mancia a tavola " + Fmt.money(e.tipCash))
                 if (e.guests.isNotEmpty()) meta.add("con " + e.guests.joinToString(", "))
