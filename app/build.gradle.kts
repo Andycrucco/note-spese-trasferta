@@ -15,7 +15,8 @@ android {
         versionName = "1.0." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
     }
 
-    // Chiave fissa: ogni nuova versione si installa sopra la precedente senza perdere i dati.
+    // Chiave fissa nel repository: ogni nuova versione si installa sopra la precedente senza perdere i dati.
+    // (Repository pubblico: la chiave è visibile; per un'app personale è un compromesso accettato.)
     signingConfigs {
         create("fixed") {
             storeFile = rootProject.file("signing/app.keystore")

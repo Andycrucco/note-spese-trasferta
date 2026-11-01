@@ -11,15 +11,8 @@ permissions:
 jobs:
   apk:
     runs-on: ubuntu-latest
-    env:
-      # facoltativo: chiave di firma privata (base64) salvata nei Secrets del repository
-      KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Chiave di firma dai Secrets (se presente)
-        if: env.KEYSTORE_B64 != ''
-        run: echo "$KEYSTORE_B64" | base64 -d > signing/app.keystore
 
       - uses: actions/setup-java@v4
         with:
