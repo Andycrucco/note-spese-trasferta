@@ -78,6 +78,10 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
             <intent-filter>
+                <action android:name="it.scontrini.trasferta.SALVA" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
@@ -101,6 +105,15 @@
             android:permission="android.permission.BROADCAST_SMS">
             <intent-filter android:priority="999">
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- MacroDroid "Invia intent" (Broadcast): salva l'SMS in Da completare senza aprire l'app -->
+        <receiver
+            android:name=".SaveReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="it.scontrini.trasferta.SALVA" />
             </intent-filter>
         </receiver>
 

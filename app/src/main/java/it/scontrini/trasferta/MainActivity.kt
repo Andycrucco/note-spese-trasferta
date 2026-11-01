@@ -76,12 +76,14 @@ class MainActivity : AppCompatActivity() {
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menu.add(0, 2, 0, "Profilo e sicurezza")
         menu.add(0, 1, 1, "Impostazioni")
+        menu.add(0, 3, 2, "Collega MacroDroid")
         return true
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         if (item.itemId == 1) { settings(); return true }
         if (item.itemId == 2) { profile(first = false); return true }
+        if (item.itemId == 3) { macroDroid(); return true }
         return super.onOptionsItemSelected(item)
     }
 
@@ -115,6 +117,49 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Ho capito, continua") { _, _ -> Store.setConsentShown(this); profile(first = true) }
             .setNegativeButton("Non ora") { _, _ -> Store.setConsentShown(this); profile(first = true) }
             .show()
+    }
+
+    /** Istruzioni per la routine MacroDroid: ogni SMS della banca finisce in Da completare, senza aprire nulla. */
+    private fun macroDroid() {
+        val box = vbox().apply { setPadding(dp(22), dp(8), dp(22), 0) }
+        val st = SaveReceiver.status(this)
+        box.addView(txt(if (st.isEmpty()) "Stato: nessun messaggio ricevuto finora da MacroDroid." else "Ultimo messaggio da MacroDroid: $st", 13.5f,
+            if (st.isEmpty()) R.color.warn else R.color.ok, true))
+        fun copyRow(label: String, value: String) {
+            val r = hbox().apply { gravity = Gravity.CENTER_VERTICAL }
+            val left = vbox()
+            left.addView(txt(label, 12f, R.color.ink2))
+            left.addView(mono(value, 13f, bold = true))
+            r.addView(left, LinearLayout.LayoutParams(0, -2, 1f))
+            r.addView(txt("Copia", 13.5f, R.color.red, true).apply {
+                setPadding(dp(12), dp(8), 0, dp(8))
+                setOnClickListener {
+                    getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText(label, value))
+                    toast("Copiato: $value")
+                }
+            })
+            box.addView(r, lp(top = dp(6)))
+        }
+        fun step(n: String, t: String) { box.addView(txt(n, 14.5f, bold = true), lp(top = dp(14))); box.addView(txt(t, 13f, R.color.ink2), lp(top = dp(2))) }
+        step("1. Trigger", "In MacroDroid: Aggiungi macro › Trigger › Telefonia › SMS ricevuto. Da: il numero o il nome della banca (o Qualsiasi). Contenuto: Qualsiasi.")
+        step("2. Azione", "Azioni › Applicazioni › Invia intent. Destinazione: Broadcast. Compila così:")
+        copyRow("Azione", SaveReceiver.ACTION)
+        copyRow("Pacchetto", packageName)
+        copyRow("Classe", "it.scontrini.trasferta.SaveReceiver")
+        copyRow("Extra 1 · nome", "testo")
+        box.addView(txt("Extra 1 · valore: tocca ··· › Testo magico › Messaggio SMS, cioè [sms_message].", 12.5f, R.color.ink2), lp(top = dp(4)))
+        copyRow("Extra 2 · nome (facoltativo)", "mittente")
+        box.addView(txt("Extra 2 · valore: Testo magico › Numero SMS, cioè [sms_number].", 12.5f, R.color.ink2), lp(top = dp(4)))
+        step("3. Togli le azioni vecchie", "Se la macro di prima apriva la versione web, la fotocamera o l'azione ADDEBITO, eliminale: ora l'SMS viene solo salvato e ti arriva la notifica \"Salvato in Da completare\" con \"Fotografa ora\".")
+        step("4. Prova", "Salva la macro e usa Prova azioni (o mandati un SMS di prova). Riapri questa schermata: lo stato in alto deve diventare verde.")
+        box.addView(txt("Se lo stato resta vuoto: in Invia intent controlla che la Destinazione sia Broadcast e che Pacchetto e Classe siano copiati esatti. In alternativa scegli Destinazione Attività con la stessa azione: funziona uguale, ma lo schermo lampeggia un attimo.", 12f, R.color.ink2), lp(top = dp(12)))
+        if (Store.myCard.isNotEmpty()) box.addView(txt("Vengono tenuti solo gli addebiti della carta che finisce con ${Store.myCard}.", 12f, R.color.ink2), lp(top = dp(8)))
+        AlertDialog.Builder(this).setTitle("Routine MacroDroid").setView(ScrollView(this).apply { addView(box) })
+            .setPositiveButton("Chiudi") { _, _ -> render() }
+            .setNeutralButton("Prova l'app") { _, _ ->
+                sendBroadcast(Intent(SaveReceiver.ACTION).setPackage(packageName).putExtra("testo", ""))
+                toast("Messaggio di prova inviato all'app: riapri Collega MacroDroid per vedere lo stato.")
+            }.show()
     }
 
     /** Chi aveva già il profilo: chiedo una volta le ultime 4 cifre della carta aziendale. */
@@ -341,6 +386,9 @@ class MainActivity : AppCompatActivity() {
         }, LinearLayout.LayoutParams(0, -2, 1f))
         root.addView(todoRow, lp(top = dp(6)))
         val doneElse = Store.sms.filter { it.done }
+        SaveReceiver.status(this).takeIf { it.isNotEmpty() }?.let { st ->
+            root.addView(txt("MacroDroid: $st", 12f, R.color.ink2).apply { setPadding(0, dp(6), 0, 0); setOnClickListener { macroDroid() } })
+        }
         if (pend.isEmpty()) {
             root.addView(txt("Niente da completare. Gli SMS salvati senza foto, quelli ricevuti dalla versione web e i movimenti nuovi dell'estratto conto compaiono qui.", 12.5f, R.color.ink2), lp(top = dp(6)))
         } else {

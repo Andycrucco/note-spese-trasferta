@@ -36,6 +36,61 @@ class SmsReceiver : BroadcastReceiver() {
     }
 }
 
+/**
+ * Routine per MacroDroid: "Invia intent" → Broadcast, azione it.scontrini.trasferta.SALVA, extra "testo" = [sms_message].
+ * Salva l'addebito in "Da completare" senza aprire nulla e manda una notifica con "Fotografa ora".
+ */
+class SaveReceiver : BroadcastReceiver() {
+    companion object {
+        const val ACTION = "it.scontrini.trasferta.SALVA"
+        private const val P = "macrodroid"
+
+        fun record(ctx: Context, result: String) {
+            ctx.getSharedPreferences(P, Context.MODE_PRIVATE).edit()
+                .putLong("last", System.currentTimeMillis()).putString("result", result).apply()
+        }
+
+        /** "" se MacroDroid non ha mai mandato nulla, altrimenti ora e risultato dell'ultimo invio */
+        fun status(ctx: Context): String {
+            val p = ctx.getSharedPreferences(P, Context.MODE_PRIVATE)
+            val t = p.getLong("last", 0L); if (t == 0L) return ""
+            val f = java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.ITALY).format(java.util.Date(t))
+            return "$f · " + (p.getString("result", "") ?: "")
+        }
+
+        /** Salva il testo ricevuto; restituisce gli addebiti nuovi. Fuori dal thread principale. */
+        fun save(ctx: Context, sender: String, text: String): List<SmsCharge> {
+            if (text.isBlank()) { record(ctx, "collegato, ma il testo era vuoto (era una prova?)"); return emptyList() }
+            val ns = if (text.contains("NS1|")) SmsIngest.importNs(ctx, text).added else emptyList()
+            val rest = text.lines().filterNot { Ns.isOwnLine(it) }.joinToString("\n").trim()
+            val added = ns + (if (rest.isNotEmpty()) SmsIngest.ingest(ctx, sender, rest, System.currentTimeMillis(), notify = false, exactTime = true) else emptyList())
+            record(ctx, when {
+                added.isNotEmpty() -> "salvato " + added.joinToString(", ") { Fmt.money(it.amount) + " " + it.currency }
+                !SmsParser.looksLikeCharge(rest) -> "SMS ricevuto, ma non è un addebito"
+                else -> "addebito già presente o di un'altra carta"
+            })
+            return added
+        }
+    }
+
+    override fun onReceive(ctx: Context, intent: Intent) {
+        if (intent.action != ACTION) return
+        val text = intent.getStringExtra("testo") ?: intent.getStringExtra(Intent.EXTRA_TEXT) ?: ""
+        val sender = intent.getStringExtra("mittente") ?: ""
+        val app = ctx.applicationContext
+        val pending = goAsync()
+        Thread {
+            try {
+                val added = save(app, sender, text)
+                val pend = Store.pending().map { it.id }.toSet()
+                for (s in added) if (s.id in pend) Notifier.charge(app, s, saved = true)
+            } catch (_: Exception) {
+                record(app, "errore nel salvataggio")
+            } finally { pending.finish() }
+        }.start()
+    }
+}
+
 object SmsIngest {
     fun accept(sender: String, body: String): Boolean {
         val list = Store.senders.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
@@ -111,7 +166,7 @@ object Notifier {
 
     fun id(s: SmsCharge): Int = s.id.hashCode()
 
-    fun charge(ctx: Context, s: SmsCharge) {
+    fun charge(ctx: Context, s: SmsCharge, saved: Boolean = false) {
         ensureChannel(ctx)
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -134,11 +189,12 @@ object Notifier {
         val n = NotificationCompat.Builder(ctx, CH)
             .setSmallIcon(R.drawable.ic_notif)
             .setColor(0xFFE10A1E.toInt())
-            .setContentTitle("Addebito " + Fmt.money(s.amount) + " " + s.currency)
-            .setContentText((if (text.isNotEmpty()) "$text — " else "") + "fotografa lo scontrino")
-            .setStyle(NotificationCompat.BigTextStyle().bigText((if (text.isNotEmpty()) "$text\n" else "") + "Tocca per fotografare lo scontrino e abbinarlo."))
+            .setContentTitle((if (saved) "Salvato in Da completare: " else "Addebito ") + Fmt.money(s.amount) + " " + s.currency)
+            .setContentText((if (text.isNotEmpty()) "$text — " else "") + (if (saved) "aggiungi la foto quando vuoi" else "fotografa lo scontrino"))
+            .setStyle(NotificationCompat.BigTextStyle().bigText((if (text.isNotEmpty()) "$text\n" else "") +
+                (if (saved) "È tra le transazioni da completare. Fotografa ora o più tardi dall'app." else "Tocca per fotografare lo scontrino e abbinarlo.")))
             .setContentIntent(open)
-            .addAction(0, "Fotografa", cam)
+            .addAction(0, if (saved) "Fotografa ora" else "Fotografa", cam)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)

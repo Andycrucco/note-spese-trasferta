@@ -50,6 +50,20 @@ class ShareActivity : AppCompatActivity() {
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
         val text = intent?.getStringExtra("testo") ?: intent?.getStringExtra(Intent.EXTRA_TEXT) ?: intent?.dataString?.substringAfter("testo=", "") ?: ""
+        val saveOnly = intent?.action == SaveReceiver.ACTION || intent?.getBooleanExtra("salva", false) == true ||
+            intent?.getStringExtra("salva")?.lowercase() in setOf("1", "true", "si", "sì")
+        if (saveOnly) {
+            // MacroDroid con destinazione "Attività": salva e chiudi subito, senza aprire la fotocamera
+            val app = applicationContext
+            val sender = intent?.getStringExtra("mittente") ?: ""
+            Thread {
+                val added = try { SaveReceiver.save(app, sender, text) } catch (_: Exception) { emptyList() }
+                val pend = Store.pending().map { it.id }.toSet()
+                for (s in added) if (s.id in pend) Notifier.charge(app, s, saved = true)
+            }.start()
+            finish(); return
+        }
+        if (intent?.action == ACTION) SaveReceiver.record(this, "ricevuto con l'azione ADDEBITO (apre la fotocamera)")
         handle(this, text)
         finish()
     }
