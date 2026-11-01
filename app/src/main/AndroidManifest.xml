@@ -66,6 +66,24 @@
             </intent-filter>
         </activity>
 
+        <!-- SMS ricevuti da MacroDroid ("Invia intent") o da Condividi dell'app Messaggi -->
+        <activity
+            android:name=".ShareActivity"
+            android:exported="true"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:label="Note spese: addebito">
+            <intent-filter>
+                <action android:name="it.scontrini.trasferta.ADDEBITO" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".LockActivity"
             android:exported="false"

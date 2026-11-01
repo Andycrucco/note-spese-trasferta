@@ -82,7 +82,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun missing(): List<String> {
-        val l = mutableListOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS)
+        val l = if (BuildConfig.SMS) mutableListOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS) else mutableListOf()
         if (Build.VERSION.SDK_INT >= 33) l.add(Manifest.permission.POST_NOTIFICATIONS)
         if (Store.useLocation) { l.add(Manifest.permission.ACCESS_FINE_LOCATION); l.add(Manifest.permission.ACCESS_COARSE_LOCATION) }
         if (Store.useLocation && Build.VERSION.SDK_INT >= 29) l.add(Manifest.permission.ACCESS_MEDIA_LOCATION)
@@ -98,7 +98,7 @@ class MainActivity : AppCompatActivity() {
     private fun disclosure() {
         val box = vbox().apply { setPadding(dp(22), dp(8), dp(22), 0) }
         listOf(
-            "SMS della banca" to "L'app legge gli SMS in arrivo per riconoscere gli addebiti con carta e ricordarti di fotografare lo scontrino. Conserva solo data, importo, esercente e ultime 4 cifre della carta; il testo degli SMS non viene salvato né inviato a nessuno.",
+            "SMS della banca" to (if (BuildConfig.SMS) "L'app legge gli SMS in arrivo per riconoscere gli addebiti con carta e ricordarti di fotografare lo scontrino." else "Questa versione non legge gli SMS da sola: li ricevi da MacroDroid o con Condividi dall'app Messaggi.") + " Conserva solo data, importo, esercente e ultime 4 cifre della carta; il testo degli SMS non viene salvato né inviato a nessuno.",
             "Posizione" to "Quando scatti la foto, la posizione serve a capire se sei a un distributore, in albergo o al ristorante. Viene inviata solo al servizio pubblico OpenStreetMap per trovare il locale più vicino. Puoi disattivarla in Impostazioni.",
             "Foto, PDF e spese" to "Restano sul telefono. Escono solo quando li condividi tu (per esempio su OneDrive).",
             "Commensali" to "QR, NFC e Bluetooth scambiano solo il nome che scrivi in Impostazioni, solo quando premi \"Sono a tavola\"."
@@ -221,7 +221,8 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, ExpenseActivity::class.java))
         }, LinearLayout.LayoutParams(0, -2, 1f))
         root.addView(row, lp(top = dp(8)))
-        root.addView(btn("Cerca addebiti negli SMS recenti", false) { importRecent() }, lp(top = dp(8)))
+        if (BuildConfig.SMS) root.addView(btn("Cerca addebiti negli SMS recenti", false) { importRecent() }, lp(top = dp(8)))
+        else root.addView(btn("Incolla SMS della banca", false) { pasteSms() }, lp(top = dp(8)))
         root.addView(btn(if (Table.active) "Sono a tavola: Bluetooth attivo · mostra il mio QR" else "Sono a tavola: QR, NFC e Bluetooth", false) {
             Tavolo.showMine(this) { if (!Table.active) toggleTable() }
         }, lp(top = dp(8)))
@@ -439,6 +440,19 @@ class MainActivity : AppCompatActivity() {
         if (miss.isNotEmpty()) { tablePerms.launch(miss.toTypedArray()); return }
         Table.start(this)?.let { toast(it) }
         render()
+    }
+
+    /** Versione senza permesso SMS: incolla uno o più SMS copiati (anche da MacroDroid). */
+    private fun pasteSms() {
+        val cm = getSystemService(android.content.ClipboardManager::class.java)
+        val clip = cm?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString().orEmpty()
+        val box = input("Incolla qui gli SMS di addebito", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE).apply {
+            setSingleLine(false); minLines = 4; maxLines = 10; setText(clip)
+        }
+        val wrap = vbox().apply { setPadding(dp(20), dp(8), dp(20), 0); addView(box) }
+        AlertDialog.Builder(this).setTitle("SMS della banca").setView(wrap)
+            .setPositiveButton("Leggi") { _, _ -> ShareActivity.handle(this, box.text.toString()) ; render() }
+            .setNegativeButton("Annulla", null).show()
     }
 
     private fun importRecent() {

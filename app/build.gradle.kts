@@ -39,6 +39,23 @@ android {
         }
     }
 
+    buildFeatures { buildConfig = true }
+
+    // due versioni: "completa" legge da sola gli SMS; "senzaSms" non chiede il permesso SMS
+    // (Play Protect blocca le app scaricate da internet che lo chiedono) e riceve gli SMS da MacroDroid o da Condividi
+    flavorDimensions += "sms"
+    productFlavors {
+        create("completa") {
+            dimension = "sms"
+            buildConfigField("boolean", "SMS", "true")
+        }
+        create("senzaSms") {
+            dimension = "sms"
+            buildConfigField("boolean", "SMS", "false")
+            versionNameSuffix = "-senzaSMS"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
