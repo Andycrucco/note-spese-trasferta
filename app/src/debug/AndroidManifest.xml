@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Solo nelle versioni scaricate da GitHub: installare gli aggiornamenti scaricati dall'app.
+     La versione per Play Store (release) non lo chiede: lì gli aggiornamenti li fa lo Store. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+</manifest>

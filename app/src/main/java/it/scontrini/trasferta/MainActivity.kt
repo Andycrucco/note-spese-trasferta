@@ -23,13 +23,23 @@ import android.widget.ScrollView
 import android.widget.Toast
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AlertDialog
+import androidx.core.view.GravityCompat
+import androidx.drawerlayout.widget.DrawerLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import java.io.File
 
 class MainActivity : AppCompatActivity() {
     private lateinit var root: LinearLayout
+    private lateinit var scroll: ScrollView
+    private lateinit var drawer: DrawerLayout
+    private lateinit var toggle: ActionBarDrawerToggle
+    private lateinit var menuPanel: LinearLayout
+    private var todoAnchor: View? = null
+    private var exportAnchor: View? = null
+    @Volatile private var checkingUpdates = false
     /** trasferta mostrata: null = quella in corso, ALL = tutte divise per trasferta, altrimenti una dello storico */
     private var viewTrip: String? = null
     private val ALL = "\u0000tutte"
@@ -48,12 +58,37 @@ class MainActivity : AppCompatActivity() {
         title = "Note spese trasferta"
         Notifier.ensureChannel(this)
         Reminder.schedule(this)
-        val scroll = ScrollView(this).apply { setBackgroundColor(col(R.color.graphite)); isFillViewport = true }
+        scroll = ScrollView(this).apply { setBackgroundColor(col(R.color.graphite)); isFillViewport = true }
         root = vbox().apply { setPadding(dp(16), dp(8), dp(16), dp(40)) }
         scroll.addView(root)
-        setContentView(scroll)
+        // menu laterale classico (☰): tutte le sezioni dell'app, compresi gli aggiornamenti
+        drawer = DrawerLayout(this)
+        drawer.addView(scroll, DrawerLayout.LayoutParams(-1, -1))
+        menuPanel = vbox().apply { setPadding(0, 0, 0, dp(24)) }
+        val menuScroll = ScrollView(this).apply { setBackgroundColor(col(R.color.surface)); addView(menuPanel) }
+        drawer.addView(menuScroll, DrawerLayout.LayoutParams(dp(300), -1).apply { gravity = GravityCompat.START })
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(menuPanel) { v, ins ->
+            val bars = ins.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            v.setPadding(0, bars.top, 0, bars.bottom + dp(24)); ins
+        }
+        setContentView(drawer)
+        toggle = ActionBarDrawerToggle(this, drawer, R.string.menu_apri, R.string.menu_chiudi)
+        drawer.addDrawerListener(toggle)
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        toggle.syncState()
         root.padForSystemBars()
         if (b == null) { if (Store.consentShown(this)) askPermissions() else disclosure() }
+    }
+
+    override fun onPostCreate(b: Bundle?) {
+        super.onPostCreate(b)
+        toggle.syncState()
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (drawer.isDrawerOpen(GravityCompat.START)) drawer.closeDrawer(GravityCompat.START)
+        else @Suppress("DEPRECATION") super.onBackPressed()
     }
 
     override fun onPause() {
@@ -69,6 +104,14 @@ class MainActivity : AppCompatActivity() {
         askCardOnce()
         Sync.onDone = { runOnUiThread { if (!isFinishing) render() } }
         Sync.later(this, force = false)
+        if (!Updates.fromStore && Updates.due(this) && !checkingUpdates) {
+            checkingUpdates = true
+            Thread {
+                try { Updates.check(this) } catch (_: Exception) {}
+                checkingUpdates = false
+                runOnUiThread { if (!isFinishing) render() }
+            }.start()
+        }
         if (Store.expenses.any { it.eurRate == null }) Thread {
             val n = try { synchronized(Store) { Fx.fill(this, Store.expenses).also { if (it > 0) Store.save(this) } } } catch (e: Exception) { 0 }
             if (n > 0) runOnUiThread { render() }
@@ -80,10 +123,13 @@ class MainActivity : AppCompatActivity() {
         menu.add(0, 1, 1, "Impostazioni")
         menu.add(0, 3, 2, "Collega MacroDroid")
         menu.add(0, 4, 0, "Repository condiviso")
+        menu.add(0, 5, 3, "Aggiornamenti")
         return true
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        if (toggle.onOptionsItemSelected(item)) return true
+        if (item.itemId == 5) { updatesDialog(); return true }
         if (item.itemId == 1) { settings(); return true }
         if (item.itemId == 2) { profile(first = false); return true }
         if (item.itemId == 3) { macroDroid(); return true }
@@ -121,6 +167,123 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Ho capito, continua") { _, _ -> Store.setConsentShown(this); profile(first = true) }
             .setNegativeButton("Non ora") { _, _ -> Store.setConsentShown(this); profile(first = true) }
             .show()
+    }
+
+    // ---------- menu laterale ----------
+    private fun buildMenu() {
+        menuPanel.removeAllViews()
+        val head = vbox().apply { setPadding(dp(20), dp(20), dp(20), dp(16)); setBackgroundColor(col(R.color.red)) }
+        head.addView(ImageView(this).apply { setImageResource(R.mipmap.ic_launcher) }, LinearLayout.LayoutParams(dp(52), dp(52)))
+        head.addView(txt("Note spese trasferta", 18f, R.color.ink, true), lp(top = dp(10)))
+        head.addView(txt(listOf(Store.myName, if (Store.myCard.isNotEmpty()) "carta " + Store.myCard else "").filter { it.isNotEmpty() }.joinToString(" · ")
+            .ifEmpty { "Versione " + Updates.currentName }, 13f, R.color.ink))
+        menuPanel.addView(head)
+        fun section(t: String) { menuPanel.addView(cap(t).apply { setPadding(dp(20), dp(18), dp(20), dp(4)) }) }
+        fun item(t: String, badge: String? = null, go: () -> Unit) {
+            val r = hbox().apply {
+                gravity = Gravity.CENTER_VERTICAL; minimumHeight = dp(48); setPadding(dp(20), 0, dp(16), 0)
+                isClickable = true; isFocusable = true
+                val tv = android.util.TypedValue(); context.theme.resolveAttribute(android.R.attr.selectableItemBackground, tv, true); setBackgroundResource(tv.resourceId)
+                setOnClickListener { drawer.closeDrawer(GravityCompat.START); drawer.postDelayed({ go() }, 220) }
+            }
+            r.addView(txt(t, 15.5f), LinearLayout.LayoutParams(0, -2, 1f))
+            if (badge != null) r.addView(txt(badge, 12f, R.color.ink, true).apply {
+                setPadding(dp(8), dp(2), dp(8), dp(2)); setBackgroundColor(col(R.color.red))
+            })
+            menuPanel.addView(r)
+        }
+        fun scrollTo(v: View?) { v?.let { a -> scroll.post { scroll.smoothScrollTo(0, maxOf(0, a.top - dp(12))) } } }
+        val pend = Store.pending().size
+        section("Spese")
+        item("Nuova spesa: fotografa") { startActivity(Intent(this, ExpenseActivity::class.java).putExtra(ExpenseActivity.EXTRA_CAMERA, true)) }
+        item("Da completare", if (pend > 0) pend.toString() else null) { scrollTo(todoAnchor) }
+        item("Storico trasferte") { tripHistory() }
+        item("Esporta per Ztravel") { if (exportAnchor != null) scrollTo(exportAnchor) else toast("Nessuna spesa da esportare in questa trasferta.") }
+        section("Dati e collegamenti")
+        item("Repository condiviso", if (Sync.connected) null else "nuovo") { repoDialog() }
+        item("Carica estratto conto") {
+            try { pickStatement.launch(arrayOf("text/*", "application/pdf", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel", "application/octet-stream")) }
+            catch (e: Exception) { toast("Nessuna app per scegliere i file.") }
+        }
+        item("Incolla SMS della banca") { pasteSms() }
+        item("Collega MacroDroid") { macroDroid() }
+        section("App")
+        item("Profilo e sicurezza") { profile(first = false) }
+        item("Impostazioni") { settings() }
+        item("Aggiornamenti", if (!Updates.fromStore) Updates.known(this) else null) { updatesDialog() }
+        item("Informativa privacy") {
+            try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Andycrucco/note-spese-trasferta/blob/main/PRIVACY.md"))) } catch (_: Exception) {}
+        }
+        menuPanel.addView(txt("Versione " + Updates.currentName, 12f, R.color.ink2).apply { setPadding(dp(20), dp(14), dp(20), 0) })
+    }
+
+    // ---------- aggiornamenti ----------
+    private fun updatesDialog() {
+        if (Updates.fromStore) {
+            try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageName"))) }
+            catch (_: Exception) { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$packageName"))) }
+            return
+        }
+        val box = vbox().apply { setPadding(dp(22), dp(8), dp(22), 0) }
+        box.addView(txt("Installata: versione " + Updates.currentName, 14f, bold = true))
+        val st = txt("Controllo se ci sono versioni nuove…", 13.5f, R.color.ink2)
+        box.addView(st, lp(top = dp(8)))
+        val notes = txt("", 13f, R.color.ink2)
+        box.addView(notes, lp(top = dp(8)))
+        val bar = com.google.android.material.progressindicator.LinearProgressIndicator(this).apply { visibility = View.GONE; max = 100 }
+        box.addView(bar, lp(top = dp(12)))
+        val dlg = AlertDialog.Builder(this).setTitle("Aggiornamenti").setView(ScrollView(this).apply { addView(box) })
+            .setPositiveButton("Scarica e installa", null).setNegativeButton("Chiudi", null)
+            .setNeutralButton("Tutte le versioni") { _, _ -> try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Updates.PAGE))) } catch (_: Exception) {} }
+            .create()
+        var info: Updates.Info? = null
+        dlg.setOnShowListener {
+            val go = dlg.getButton(AlertDialog.BUTTON_POSITIVE)
+            go.isEnabled = false
+            go.setOnClickListener {
+                val i = info ?: return@setOnClickListener
+                if (!Updates.canInstall(this)) {
+                    toast("Consenti \"Installa app sconosciute\" per Note spese, poi torna qui e tocca di nuovo Scarica e installa.")
+                    try { startActivity(Updates.allowInstallIntent(this)) } catch (_: Exception) {}
+                    return@setOnClickListener
+                }
+                go.isEnabled = false; bar.visibility = View.VISIBLE; bar.isIndeterminate = false
+                st.text = "Scarico la versione ${i.name}…"
+                Thread {
+                    try {
+                        val f = Updates.download(this, i) { pct -> runOnUiThread { bar.setProgressCompat(pct, true) } }
+                        runOnUiThread {
+                            st.text = "Scaricata. Conferma l'installazione: i tuoi dati restano."
+                            try { startActivity(Updates.installIntent(this, f)) } catch (e: Exception) { st.text = "Non riesco ad aprire l'installazione: scaricala da Tutte le versioni." }
+                            go.isEnabled = true; go.text = "Installa di nuovo"
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread { st.text = "Download non riuscito: controlla la connessione e riprova."; go.isEnabled = true; bar.visibility = View.GONE }
+                    }
+                }.start()
+            }
+            Thread {
+                val res = try { Result.success(Updates.check(this)) } catch (e: Exception) { Result.failure(e) }
+                runOnUiThread {
+                    res.onFailure { st.text = "Non riesco a controllare adesso (serve internet). Riprova più tardi." }
+                    res.onSuccess { i ->
+                        info = i
+                        if (i == null) {
+                            st.text = "Hai già l'ultima versione."; st.setTextColor(col(R.color.ok))
+                        } else {
+                            st.text = "Disponibile la versione ${i.name}" + (if (i.date.isNotEmpty()) " del " + Fmt.dmy(i.date) else "") +
+                                (if (i.size > 0) " · " + String.format(java.util.Locale.ITALY, "%.0f MB", i.size / 1_048_576.0) else "") +
+                                ". Si installa sopra a questa e i dati restano."
+                            st.setTextColor(col(R.color.ink))
+                            if (i.notes.isNotEmpty()) notes.text = "Novità\n" + i.notes
+                            go.isEnabled = true
+                        }
+                        render()
+                    }
+                }
+            }.start()
+        }
+        dlg.show()
     }
 
     /** Repository condiviso: stesso archivio su più telefoni (GitHub privato). */
@@ -388,6 +551,17 @@ class MainActivity : AppCompatActivity() {
     private fun render() {
         root.removeAllViews()
         val gap = dp(14)
+        buildMenu()
+        if (!Updates.fromStore) Updates.known(this)?.let { v ->
+            val (c, inner) = card()
+            c.strokeColor = col(R.color.red)
+            val r = hbox().apply { gravity = Gravity.CENTER_VERTICAL }
+            r.addView(txt("Nuova versione $v disponibile", 14.5f, bold = true), LinearLayout.LayoutParams(0, -2, 1f))
+            r.addView(txt("Aggiorna", 14.5f, R.color.red, true).apply { setPadding(dp(10), dp(6), 0, dp(6)) })
+            inner.addView(r)
+            c.setOnClickListener { updatesDialog() }
+            root.addView(c, lp(top = dp(6)))
+        }
 
         // testata con il logo aziendale, se impostato
         val logo = Store.logoFile(this)
@@ -457,7 +631,7 @@ class MainActivity : AppCompatActivity() {
 
         // transazioni da completare: SMS ed estratto conto senza scontrino
         val pend = Store.pending()
-        root.addView(cap("Da completare (${pend.size})"), lp(top = dp(22)))
+        root.addView(cap("Da completare (${pend.size})").also { todoAnchor = it }, lp(top = dp(22)))
         val todoRow = hbox()
         todoRow.addView(btn("Incolla SMS", false) { pasteSms() }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) })
         todoRow.addView(btn("Estratto conto", false) {
@@ -563,7 +737,7 @@ class MainActivity : AppCompatActivity() {
             }
             renderTotals(list)
             renderList(list)
-            root.addView(cap("Esporta per Ztravel"), lp(top = dp(22)))
+            root.addView(cap("Esporta per Ztravel").also { exportAnchor = it }, lp(top = dp(22)))
             root.addView(btn("Crea cartella per Ztravel") { exportFolder(list) }, lp(top = dp(6)))
             root.addView(txt("Ogni scontrino numerato nell'ordine delle transazioni in banca (001_2026-03-22_CENA_…), con foto, PDF e riepilogo CSV. Se poi aggiungi un SMS perso, i numeri si riordinano da soli: riesporta e la cartella viene rifatta. Finisce in Download/NoteSpese e puoi inviarla a OneDrive.", 12f, R.color.ink2), lp(top = dp(4)))
             root.addView(btn("Solo CSV di riepilogo", false) { exportCsv(list) }, lp(top = dp(8)))

@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="nfc_desc">Note spese trasferta: condivide il tuo nome con un collega al tavolo, solo mentre "Sono a tavola" è aperto</string>
+    <string name="menu_apri">Apri il menu</string>
+    <string name="menu_chiudi">Chiudi il menu</string>
 </resources>

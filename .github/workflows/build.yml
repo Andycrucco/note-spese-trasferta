@@ -58,6 +58,8 @@ jobs:
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: Note spese trasferta 1.0.${{ github.run_number }}
+          # novità mostrate nell'app in Menu › Aggiornamenti
+          body: ${{ github.event.head_commit.message }}
           files: |
             NoteSpeseTrasferta.apk
             NoteSpeseTrasferta-senzaSMS.apk
