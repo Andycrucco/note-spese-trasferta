@@ -15,24 +15,27 @@ android {
         versionName = "1.0." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
     }
 
-    // Chiave fissa nel repository: ogni nuova versione si installa sopra la precedente senza perdere i dati.
-    // (Repository pubblico: la chiave è visibile; per un'app personale è un compromesso accettato.)
+    // Chiave di firma privata: arriva dai Secrets di GitHub (KEYSTORE_B64, KEYSTORE_PASSWORD), mai nel repository.
+    // Stessa chiave a ogni versione = gli aggiornamenti si installano sopra senza perdere i dati.
+    val ksFile = rootProject.file("signing/app.keystore")
+    val ksPass = System.getenv("KEYSTORE_PASSWORD") ?: ""
+    val hasKey = ksFile.exists() && ksPass.isNotEmpty()
     signingConfigs {
         create("fixed") {
-            storeFile = rootProject.file("signing/app.keystore")
-            storePassword = "scontrini"
-            keyAlias = "scontrini"
-            keyPassword = "scontrini"
+            storeFile = ksFile
+            storePassword = ksPass
+            keyAlias = "notespese"
+            keyPassword = ksPass
         }
     }
 
     buildTypes {
         getByName("debug") {
-            signingConfig = signingConfigs.getByName("fixed")
+            if (hasKey) signingConfig = signingConfigs.getByName("fixed")
         }
         getByName("release") {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("fixed")
+            if (hasKey) signingConfig = signingConfigs.getByName("fixed")
         }
     }
 

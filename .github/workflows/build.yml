@@ -11,8 +11,21 @@ permissions:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    env:
+      # chiave di firma privata, salvata solo nei Secrets del repository
+      KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Controlla la chiave di firma
+        if: env.KEYSTORE_B64 == '' || env.KEYSTORE_PASSWORD == ''
+        run: |
+          echo "::error::Mancano i Secrets KEYSTORE_B64 e/o KEYSTORE_PASSWORD (Settings > Secrets and variables > Actions)."
+          exit 1
+
+      - name: Chiave di firma dai Secrets
+        run: mkdir -p signing && echo "$KEYSTORE_B64" | base64 -d > signing/app.keystore
 
       - uses: actions/setup-java@v4
         with:
