@@ -44,7 +44,8 @@ class MainActivity : AppCompatActivity() {
         root = vbox().apply { setPadding(dp(16), dp(8), dp(16), dp(40)) }
         scroll.addView(root)
         setContentView(scroll)
-        if (b == null) askPermissions()
+        root.padForSystemBars()
+        if (b == null) { if (Store.consentShown(this)) askPermissions() else disclosure() }
     }
 
     override fun onResume() {
@@ -78,6 +79,25 @@ class MainActivity : AppCompatActivity() {
     private fun askPermissions() {
         val m = missing()
         if (m.isNotEmpty()) perms.launch(m.toTypedArray())
+    }
+
+    /** Avviso chiaro, prima di chiedere i permessi, su cosa legge l'app e dove vanno i dati (richiesto da Google Play). */
+    private fun disclosure() {
+        val box = vbox().apply { setPadding(dp(22), dp(8), dp(22), 0) }
+        listOf(
+            "SMS della banca" to "L'app legge gli SMS in arrivo per riconoscere gli addebiti con carta e ricordarti di fotografare lo scontrino. Conserva solo data, importo, esercente e ultime 4 cifre della carta; il testo degli SMS non viene salvato né inviato a nessuno.",
+            "Posizione" to "Quando scatti la foto, la posizione serve a capire se sei a un distributore, in albergo o al ristorante. Viene inviata solo al servizio pubblico OpenStreetMap per trovare il locale più vicino. Puoi disattivarla in Impostazioni.",
+            "Foto, PDF e spese" to "Restano sul telefono. Escono solo quando li condividi tu (per esempio su OneDrive).",
+            "Commensali" to "QR, NFC e Bluetooth scambiano solo il nome che scrivi in Impostazioni, solo quando premi \"Sono a tavola\"."
+        ).forEach { (t, d) ->
+            box.addView(txt(t, 15f, bold = true), lp(top = dp(10)))
+            box.addView(txt(d, 13.5f, R.color.ink2), lp(top = dp(2)))
+        }
+        val sv = ScrollView(this).apply { addView(box) }
+        AlertDialog.Builder(this).setTitle("Prima di iniziare").setView(sv).setCancelable(false)
+            .setPositiveButton("Ho capito, continua") { _, _ -> Store.setConsentShown(this); askPermissions() }
+            .setNegativeButton("Non ora") { _, _ -> Store.setConsentShown(this) }
+            .show()
     }
 
     private fun openAppSettings() {

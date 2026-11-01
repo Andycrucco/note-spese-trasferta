@@ -34,23 +34,29 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.7"
+          gradle-version: "8.14.3"
 
-      - name: Compila
-        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Compila (APK da installare e AAB per Play Store)
+        run: gradle :app:assembleDebug :app:bundleRelease --no-daemon --stacktrace
 
       - name: Rinomina APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk NoteSpeseTrasferta.apk
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk NoteSpeseTrasferta.apk
+          cp app/build/outputs/bundle/release/app-release.aab NoteSpeseTrasferta-PlayStore.aab
 
       - uses: actions/upload-artifact@v4
         with:
           name: NoteSpeseTrasferta-apk
-          path: NoteSpeseTrasferta.apk
+          path: |
+            NoteSpeseTrasferta.apk
+            NoteSpeseTrasferta-PlayStore.aab
 
       - name: Pubblica come release scaricabile
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: Note spese trasferta 1.0.${{ github.run_number }}
-          files: NoteSpeseTrasferta.apk
+          files: |
+            NoteSpeseTrasferta.apk
+            NoteSpeseTrasferta-PlayStore.aab
           make_latest: true

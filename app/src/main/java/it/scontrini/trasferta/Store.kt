@@ -87,6 +87,10 @@ object Store {
         if (!tmp.renameTo(file(ctx))) { file(ctx).writeText(o.toString()); tmp.delete() }
     }
 
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences("app", Context.MODE_PRIVATE)
+    fun consentShown(ctx: Context) = prefs(ctx).getBoolean("consent", false)
+    fun setConsentShown(ctx: Context) { prefs(ctx).edit().putBoolean("consent", true).apply() }
+
     fun expense(id: String?): Expense? = expenses.find { it.id == id }
     fun smsById(id: String?): SmsCharge? = sms.find { it.id == id }
 

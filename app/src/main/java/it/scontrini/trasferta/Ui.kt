@@ -9,6 +9,8 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.content.ContextCompat
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
@@ -67,4 +69,19 @@ fun Context.input(hint: String, type: Int = InputType.TYPE_CLASS_TEXT or InputTy
 fun Context.field(label: String, view: View): LinearLayout = vbox().apply {
     addView(cap(label))
     addView(view, lp())
+}
+
+/**
+ * Da Android 15 lo schermo va "da bordo a bordo": il contenuto scorrevole lascia spazio
+ * alla barra di navigazione e alla tastiera (la barra del titolo gestisce già il lato alto).
+ */
+fun View.padForSystemBars(extraBottom: Int = 0) {
+    val l = paddingLeft; val t = paddingTop; val r = paddingRight; val b = paddingBottom
+    ViewCompat.setOnApplyWindowInsetsListener(this) { v, ins ->
+        val bars = ins.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+        val ime = ins.getInsets(WindowInsetsCompat.Type.ime())
+        v.setPadding(l + bars.left, t, r + bars.right, b + maxOf(bars.bottom, ime.bottom) + extraBottom)
+        ins
+    }
+    ViewCompat.requestApplyInsets(this)
 }

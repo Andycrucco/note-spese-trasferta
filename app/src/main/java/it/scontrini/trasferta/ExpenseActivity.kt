@@ -156,6 +156,7 @@ class ExpenseActivity : AppCompatActivity() {
         val root = vbox().apply { setPadding(dp(16), dp(8), dp(16), dp(40)) }
         scroll.addView(root)
         setContentView(scroll)
+        root.padForSystemBars()
 
         sms?.let { s ->
             val (c, inner) = card()
