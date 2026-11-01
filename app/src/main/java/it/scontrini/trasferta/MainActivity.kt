@@ -30,7 +30,9 @@ import java.io.File
 
 class MainActivity : AppCompatActivity() {
     private lateinit var root: LinearLayout
-    private var showAll = false
+    /** trasferta mostrata: null = quella in corso, ALL = tutte divise per trasferta, altrimenti una dello storico */
+    private var viewTrip: String? = null
+    private val ALL = "\u0000tutte"
 
     private val perms = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { render() }
     /** risposta del selettore account Google del telefono */
@@ -159,8 +161,87 @@ class MainActivity : AppCompatActivity() {
         startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
     }
 
-    private fun visible(): List<Expense> =
-        if (showAll) Store.expenses.toList() else Store.expenses.filter { it.trip == Store.trip }
+    private fun visible(): List<Expense> = when (val v = viewTrip) {
+        null -> Store.expenses.filter { it.trip == Store.trip }
+        ALL -> Store.expenses.toList()
+        else -> Store.expenses.filter { it.trip == v }
+    }
+
+    private fun tripLabel(t: String) = t.ifBlank { "Senza trasferta" }
+
+    /** trasferte con almeno una spesa, dalla più recente */
+    private fun trips(): List<Pair<String, List<Expense>>> =
+        Store.expenses.groupBy { it.trip }.entries
+            .sortedWith(compareByDescending<Map.Entry<String, List<Expense>>> { e -> e.value.maxOf { it.date } }.thenBy { it.key })
+            .map { it.key to it.value }
+
+    private fun shortDay(iso: String): String {
+        val p = iso.split("-")
+        if (p.size != 3) return iso
+        val mesi = listOf("gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic")
+        return (p[2].toIntOrNull() ?: 0).toString() + " " + (mesi.getOrNull((p[1].toIntOrNull() ?: 1) - 1) ?: "") + " " + p[0]
+    }
+
+    private fun dateRange(items: List<Expense>): String {
+        val a = items.minOf { it.date }; val b = items.maxOf { it.date }
+        return if (a == b) shortDay(a) else shortDay(a) + " – " + shortDay(b)
+    }
+
+    private fun totalsLine(items: List<Expense>): String {
+        val byCur = items.groupBy { it.currency.ifBlank { "—" } }.entries.sortedByDescending { e -> e.value.sumOf { it.total } }
+            .joinToString(" · ") { (c, v) -> Fmt.money(v.sumOf { it.total }) + " " + c }
+        val eur = if (items.any { it.currency != "EUR" } && items.any { it.totalEur != null })
+            "  (≈ " + Fmt.money(items.sumOf { it.totalEur ?: 0.0 }) + " EUR)" else ""
+        return byCur + eur
+    }
+
+    /** Storico: elenco delle trasferte con date, scontrini e totali; tocca per aprirne una. */
+    private fun tripHistory() {
+        val all = trips()
+        if (all.isEmpty()) { toast("Ancora nessuna spesa registrata."); return }
+        val box = vbox().apply { setPadding(dp(16), dp(4), dp(16), dp(8)) }
+        lateinit var dlg: AlertDialog
+        fun entry(title: String, sub: String, tot: String, current: Boolean, onTap: () -> Unit) {
+            val (c, inner) = card()
+            if (current) c.strokeColor = col(R.color.red)
+            val head = hbox().apply { gravity = Gravity.CENTER_VERTICAL }
+            head.addView(txt(title, 15.5f, bold = true), LinearLayout.LayoutParams(0, -2, 1f))
+            if (current) head.addView(txt("IN CORSO", 11f, R.color.red, true))
+            inner.addView(head)
+            inner.addView(txt(sub, 13f, R.color.ink2), lp(top = dp(2)))
+            inner.addView(mono(tot, 13.5f, bold = true), lp(top = dp(4)))
+            c.isClickable = true
+            c.setOnClickListener { dlg.dismiss(); onTap() }
+            box.addView(c, lp(top = dp(8)))
+        }
+        for ((t, items) in all) {
+            val n = items.size
+            entry(tripLabel(t), dateRange(items) + " · $n " + (if (n == 1) "scontrino" else "scontrini"), totalsLine(items), t == Store.trip) {
+                viewTrip = if (t == Store.trip) null else t; render()
+            }
+        }
+        if (all.size > 1) entry("Tutte le trasferte", dateRange(Store.expenses) + " · ${Store.expenses.size} scontrini, divisi per trasferta", totalsLine(Store.expenses), false) {
+            viewTrip = ALL; render()
+        }
+        dlg = AlertDialog.Builder(this).setTitle("Storico trasferte (${all.size})")
+            .setView(ScrollView(this).apply { addView(box) })
+            .setNegativeButton("Chiudi", null).show()
+    }
+
+    private fun renameTrip(old: String) {
+        val inp = input("Nome della trasferta").apply { setText(old) }
+        val wrap = vbox().apply { setPadding(dp(20), dp(8), dp(20), 0); addView(inp) }
+        wrap.addView(txt("Se scrivi il nome di un'altra trasferta, le spese vengono unite.", 12f, R.color.ink2), lp(top = dp(6)))
+        AlertDialog.Builder(this).setTitle("Rinomina trasferta").setView(wrap)
+            .setPositiveButton("Salva") { _, _ ->
+                val nu = inp.text.toString().trim()
+                if (nu.isEmpty() || nu == old) return@setPositiveButton
+                Store.expenses.filter { it.trip == old }.forEach { it.trip = nu }
+                if (Store.trip == old) Store.trip = nu
+                viewTrip = if (nu == Store.trip) null else nu
+                Store.save(this); render()
+            }.setNegativeButton("Annulla", null).show()
+    }
 
     private fun render() {
         root.removeAllViews()
@@ -251,18 +332,59 @@ class MainActivity : AppCompatActivity() {
             root.addView(c, lp(top = dp(6)))
         }
 
-        // filtro
-        root.addView(CheckBox(this).apply {
-            text = "Mostra tutte le trasferte"; isChecked = showAll; setTextColor(col(R.color.ink2))
-            setOnCheckedChangeListener { _, ch -> showAll = ch; render() }
-        }, lp(top = dp(16)))
+        // storico trasferte
+        val nTrips = trips().size
+        if (viewTrip != null && viewTrip != ALL && Store.expenses.none { it.trip == viewTrip }) viewTrip = null
+        val v = viewTrip
+        if (v == null) {
+            if (nTrips > 0) root.addView(btn("Storico trasferte ($nTrips)", false) { tripHistory() }, lp(top = dp(16)))
+        } else {
+            val (c, inner) = card()
+            c.strokeColor = col(R.color.red)
+            inner.addView(cap(if (v == ALL) "Storico · tutte le trasferte" else "Storico trasferta"))
+            if (v != ALL) inner.addView(txt(tripLabel(v), 17f, bold = true), lp(top = dp(2)))
+            val r1 = hbox()
+            r1.addView(btn("Torna a quella in corso") { viewTrip = null; render() }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) })
+            r1.addView(btn("Altre trasferte", false) { tripHistory() }, LinearLayout.LayoutParams(0, -2, 1f))
+            inner.addView(r1, lp(top = dp(10)))
+            if (v != ALL) {
+                val r2 = hbox()
+                r2.addView(btn("Riprendi questa", false) {
+                    Store.trip = v; viewTrip = null; Store.save(this); render(); toast("Le nuove spese andranno in \"" + tripLabel(v) + "\"")
+                }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) })
+                r2.addView(btn("Rinomina", false) { renameTrip(v) }, LinearLayout.LayoutParams(0, -2, 1f))
+                inner.addView(r2, lp(top = dp(8)))
+            }
+            root.addView(c, lp(top = dp(16)))
+        }
 
         val list = visible()
         if (list.isEmpty()) {
             root.addView(txt(
                 if (Store.expenses.isEmpty()) "Nessuna spesa registrata. Fotografa il primo scontrino: qui vedrai i totali per carta e per categoria."
-                else "Nessuna spesa in questa trasferta.", 14f, R.color.ink2
+                else "Nessuna spesa in questa trasferta." + (if (nTrips > 0) " Le spese delle trasferte precedenti sono nello Storico." else ""), 14f, R.color.ink2
             ).apply { gravity = Gravity.CENTER; setPadding(dp(8), dp(24), dp(8), dp(24)) })
+        } else if (v == ALL) {
+            renderTotals(list)
+            for ((t, items) in trips()) {
+                val (c, inner) = card()
+                c.strokeColor = col(R.color.red)
+                val head = hbox().apply { gravity = Gravity.CENTER_VERTICAL }
+                head.addView(txt(tripLabel(t), 16f, bold = true), LinearLayout.LayoutParams(0, -2, 1f))
+                if (t == Store.trip) head.addView(txt("IN CORSO", 11f, R.color.red, true))
+                inner.addView(head)
+                inner.addView(txt(dateRange(items) + " · ${items.size} " + (if (items.size == 1) "scontrino" else "scontrini"), 13f, R.color.ink2), lp(top = dp(2)))
+                inner.addView(mono(totalsLine(items), 13.5f, bold = true), lp(top = dp(4)))
+                inner.addView(txt("Apri questa trasferta ›", 12.5f, R.color.red, true), lp(top = dp(6)))
+                c.isClickable = true
+                c.setOnClickListener { viewTrip = if (t == Store.trip) null else t; render() }
+                root.addView(c, lp(top = dp(26)))
+                renderList(items, hint = false)
+            }
+            root.addView(txt("Tocca una spesa per modificarla. Tieni premuto per condividere il PDF o eliminarla.", 12f, R.color.ink2), lp(top = dp(8)))
+            root.addView(cap("Esporta per Ztravel"), lp(top = dp(22)))
+            root.addView(btn("Crea cartella per Ztravel") { exportFolder(list) }, lp(top = dp(6)))
+            root.addView(btn("Solo CSV di riepilogo", false) { exportCsv(list) }, lp(top = dp(8)))
         } else {
             renderTotals(list)
             renderList(list)
@@ -315,7 +437,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun renderList(list: List<Expense>) {
+    private fun renderList(list: List<Expense>, hint: Boolean = true) {
         val m = Store.match()
         val byDay = list.sortedWith(compareByDescending<Expense> { it.date }.thenByDescending { it.created }).groupBy { it.date }
         for ((day, items) in byDay) {
@@ -354,7 +476,7 @@ class MainActivity : AppCompatActivity() {
             }
             root.addView(c, lp(top = dp(6)))
         }
-        root.addView(txt("Tocca una spesa per modificarla. Tieni premuto per condividere il PDF o eliminarla.", 12f, R.color.ink2), lp(top = dp(8)))
+        if (hint) root.addView(txt("Tocca una spesa per modificarla. Tieni premuto per condividere il PDF o eliminarla.", 12f, R.color.ink2), lp(top = dp(8)))
     }
 
     private fun expenseMenu(e: Expense) {
@@ -403,7 +525,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun exportName(ext: String): String =
-        "Ztravel-" + (if (showAll) "tutte-le-trasferte" else Fmt.slug(Store.trip, 40).ifEmpty { "trasferta" }) + "." + ext
+        "Ztravel-" + (if (viewTrip == ALL) "tutte-le-trasferte" else Fmt.slug(viewTrip ?: Store.trip, 40).ifEmpty { "trasferta" }) + "." + ext
 
     private fun exportCsv(list: List<Expense>) {
         val f = File(Exporter.exportDir(this), exportName("csv"))
@@ -414,7 +536,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun exportFolder(list: List<Expense>) {
-        val label = if (showAll) "tutte-le-trasferte" else Store.trip
+        val label = if (viewTrip == ALL) "tutte-le-trasferte" else (viewTrip ?: Store.trip)
         toast("Preparo la cartella: per i pasti scarico i dati sull'inflazione…")
         Thread {
             try {
