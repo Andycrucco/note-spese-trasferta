@@ -39,6 +39,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(b)
         title = "Note spese trasferta"
         Notifier.ensureChannel(this)
+        Reminder.schedule(this)
         val scroll = ScrollView(this).apply { setBackgroundColor(col(R.color.graphite)); isFillViewport = true }
         root = vbox().apply { setPadding(dp(16), dp(8), dp(16), dp(40)) }
         scroll.addView(root)
@@ -50,6 +51,10 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         Store.reload(this)
         render()
+        if (Store.expenses.any { it.eurRate == null }) Thread {
+            val n = try { synchronized(Store) { Fx.fill(this, Store.expenses).also { if (it > 0) Store.save(this) } } } catch (e: Exception) { 0 }
+            if (n > 0) runOnUiThread { render() }
+        }.start()
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -159,11 +164,11 @@ class MainActivity : AppCompatActivity() {
                 r.setOnClickListener {
                     startActivity(Intent(this, ExpenseActivity::class.java).putExtra(ExpenseActivity.EXTRA_SMS, s.id).putExtra(ExpenseActivity.EXTRA_CAMERA, true))
                 }
-                r.setOnLongClickListener { deleteSms(s); true }
+                r.setOnLongClickListener { smsMenu(s); true }
                 if (i > 0) inner.addView(View(this).apply { setBackgroundColor(col(R.color.line)) }, lp(h = dp(1)))
                 inner.addView(r)
             }
-            inner.addView(txt("Tocca per fotografare lo scontrino. Tieni premuto per eliminare l'addebito.", 12f, R.color.ink2), lp(top = dp(6)))
+            inner.addView(txt("Tocca per fotografare lo scontrino. Tieni premuto per la dichiarazione di scontrino mancante o per eliminare l'addebito.", 12f, R.color.ink2), lp(top = dp(6)))
             root.addView(c, lp(top = dp(6)))
         }
 
@@ -191,6 +196,18 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderTotals(list: List<Expense>) {
         val m = Store.match()
+        val withEur = list.filter { it.totalEur != null }
+        if (list.map { it.currency }.distinct().size > 1 || list.any { it.currency != "EUR" }) {
+            val (c, inner) = card()
+            val head = hbox().apply { gravity = Gravity.CENTER_VERTICAL }
+            head.addView(mono("EUR", 13f, R.color.ink2, true), LinearLayout.LayoutParams(0, -2, 1f))
+            head.addView(mono(Fmt.money(withEur.sumOf { it.totalEur ?: 0.0 }), 28f, bold = true))
+            inner.addView(head)
+            val miss = list.size - withEur.size
+            inner.addView(txt("Controvalore in euro al cambio BCE del giorno di ogni spesa" +
+                (if (miss > 0) " · $miss senza cambio (si completa quando c'è internet)" else "") + ".", 13f, R.color.ink2))
+            root.addView(c, lp(top = dp(8)))
+        }
         for ((cur, items) in list.groupBy { it.currency.ifBlank { "—" } }.entries.sortedByDescending { e -> e.value.sumOf { it.total } }) {
             val (c, inner) = card()
             val head = hbox().apply { gravity = Gravity.CENTER_VERTICAL }
@@ -247,6 +264,8 @@ class MainActivity : AppCompatActivity() {
                 val right = vbox().apply { gravity = Gravity.END }
                 right.addView(mono(Fmt.money(e.total) + " " + e.currency, 14f, bold = true))
                 if (e.tipTotal > 0) right.addView(mono("mancia " + Fmt.money(e.tipTotal), 12f, R.color.ink2))
+                if (e.currency != "EUR") e.totalEur?.let { right.addView(mono("≈ " + Fmt.money(it) + " EUR", 12f, R.color.ink2)) }
+                if (e.declaration) right.addView(txt("dichiarazione", 11.5f, R.color.warn, true))
                 r.addView(right)
                 r.setOnClickListener {
                     startActivity(Intent(this, ExpenseActivity::class.java).putExtra(ExpenseActivity.EXTRA_EXP, e.id))
@@ -272,6 +291,17 @@ class MainActivity : AppCompatActivity() {
                             e.photo?.let { File(it).delete() }
                             Store.save(this); render()
                         }.setNegativeButton("Annulla", null).show()
+                }
+            }.show()
+    }
+
+    private fun smsMenu(s: SmsCharge) {
+        AlertDialog.Builder(this).setTitle(Fmt.money(s.amount) + " " + s.currency + (if (s.merchant.isNotEmpty()) " · " + s.merchant else ""))
+            .setItems(arrayOf("Fotografa lo scontrino", "Scontrino non disponibile: dichiarazione", "Elimina l'addebito")) { _, w ->
+                when (w) {
+                    0 -> startActivity(Intent(this, ExpenseActivity::class.java).putExtra(ExpenseActivity.EXTRA_SMS, s.id).putExtra(ExpenseActivity.EXTRA_CAMERA, true))
+                    1 -> startActivity(Intent(this, ExpenseActivity::class.java).putExtra(ExpenseActivity.EXTRA_SMS, s.id).putExtra(ExpenseActivity.EXTRA_DECL, true))
+                    2 -> deleteSms(s)
                 }
             }.show()
     }

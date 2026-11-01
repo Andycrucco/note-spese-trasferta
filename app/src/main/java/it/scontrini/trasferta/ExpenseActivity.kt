@@ -40,7 +40,11 @@ class ExpenseActivity : AppCompatActivity() {
         const val EXTRA_EXP = "exp"
         const val EXTRA_CAMERA = "camera"
         const val EXTRA_GALLERY = "gallery"
+        const val EXTRA_DECL = "declaration"
     }
+
+    /** scontrino non disponibile: si compila una dichiarazione invece della foto */
+    private var declaration = false
 
     private var editing: Expense? = null
     private var sms: SmsCharge? = null
@@ -102,9 +106,11 @@ class ExpenseActivity : AppCompatActivity() {
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         editing = Store.expense(intent.getStringExtra(EXTRA_EXP))
         sms = Store.smsById(intent.getStringExtra(EXTRA_SMS))
+        declaration = editing?.declaration ?: intent.getBooleanExtra(EXTRA_DECL, false)
         expId = editing?.id ?: (b?.getString("expId") ?: Store.newId("x"))
         camUri = b?.getString("camUri")?.let { Uri.parse(it) }
         title = when {
+            declaration -> "Dichiarazione scontrino mancante"
             editing != null -> "Modifica spesa"
             sms != null -> "Abbina scontrino"
             else -> "Nuova spesa"
@@ -115,7 +121,7 @@ class ExpenseActivity : AppCompatActivity() {
         if (b == null && Store.useLocation && !Where.hasPermission(this)) {
             locPerms.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
         }
-        if (b == null && editing == null) {
+        if (b == null && editing == null && !declaration) {
             when {
                 intent.getBooleanExtra(EXTRA_CAMERA, false) -> preview.post { camera() }
                 intent.getBooleanExtra(EXTRA_GALLERY, false) -> preview.post { gallery() }
@@ -228,7 +234,7 @@ class ExpenseActivity : AppCompatActivity() {
         fname = mono("", 12f, R.color.ink2).apply { setPadding(dp(10), dp(8), dp(10), dp(8)); setBackgroundColor(col(R.color.surface)) }
         root.addView(fname, lp(top = dp(4)))
 
-        pdfBtn = btn("Crea PDF e salva") { save(true) }
+        pdfBtn = btn(if (declaration) "Crea dichiarazione PDF e salva" else "Crea PDF e salva") { save(true) }
         saveBtn = btn("Salva senza PDF", false) { save(false) }
         root.addView(pdfBtn, lp(top = dp(18)))
         root.addView(saveBtn, lp(top = dp(8)))
@@ -266,7 +272,8 @@ class ExpenseActivity : AppCompatActivity() {
             place.setText(s.merchant); amount.setText(Fmt.plain(s.amount))
             if (s.currency.isNotEmpty()) cur.setText(s.currency)
             card.setText(s.cardLabel().removePrefix("carta "))
-            status.text = "Fotografa lo scontrino: lo leggo e controllo che coincida con l'addebito."
+            status.text = if (declaration) "Scontrino non disponibile: controlla i dati dell'addebito e scegli la categoria. Il PDF sarà una dichiarazione da firmare."
+            else "Fotografa lo scontrino: lo leggo e controllo che coincida con l'addebito."
             recompute()
         } else {
             status.text = "Fotografa lo scontrino o scegli la foto: leggo io data, importo, mancia e carta."
@@ -361,8 +368,10 @@ class ExpenseActivity : AppCompatActivity() {
             bankId = e?.bankId ?: sms?.id, created = e?.created ?: System.currentTimeMillis(),
             time = Fmt.time(time.text.toString()), tipCash = if (category in MEALS) Fmt.round2(tc) else 0.0,
             lat = lat, lon = lon, country = country, poi = poi,
-            catReason = if (userCat) "scelta manuale" else catReason
+            catReason = if (userCat) "scelta manuale" else catReason,
+            eurRate = e?.eurRate, eurDate = e?.eurDate ?: "", declaration = declaration
         )
+        if (e != null && (e.date != x.date || e.currency != x.currency)) { x.eurRate = null; x.eurDate = "" }
         if (withPdf) x.pdf = x.pdfName()
         return x
     }
@@ -379,7 +388,7 @@ class ExpenseActivity : AppCompatActivity() {
                 String.format(java.util.Locale.ITALY, "%.1f", e.tipPct()) + "% del conto" +
                 (if (e.people > 1) " · " + Fmt.money(e.tipTotal / e.people) + " a persona" else "")
         } else tipInfo.visibility = View.GONE
-        photoBtns.visibility = if (photo == null) View.VISIBLE else View.GONE
+        photoBtns.visibility = if (photo == null && !declaration) View.VISIBLE else View.GONE
         val s = sms
         if (s == null || photo == null) {
             smsInfo.visibility = View.GONE
@@ -504,6 +513,7 @@ class ExpenseActivity : AppCompatActivity() {
         Thread {
             try {
                 var pdf: File? = null
+                try { Fx.rate(this, e.date, e.currency)?.let { (r, d) -> e.eurRate = r; e.eurDate = d } } catch (_: Exception) {}
                 if (withPdf) {
                     pdf = Exporter.pdfFor(this, e, rebuild = true)
                     pdf?.let { Exporter.toDownloads(this, it, "application/pdf") }

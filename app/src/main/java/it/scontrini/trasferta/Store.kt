@@ -127,6 +127,7 @@ object Store {
         put("time", e.time); put("tipCash", e.tipCash)
         put("lat", e.lat ?: JSONObject.NULL); put("lon", e.lon ?: JSONObject.NULL)
         put("country", e.country); put("poi", e.poi); put("catReason", e.catReason)
+        put("eurRate", e.eurRate ?: JSONObject.NULL); put("eurDate", e.eurDate); put("declaration", e.declaration)
     }
 
     private fun expFrom(o: JSONObject) = Expense(
@@ -137,7 +138,9 @@ object Store {
         pdf = o.optStr("pdf"), photo = o.optStr("photo"), bankId = o.optStr("bankId"), created = o.optLong("created", 0L),
         time = o.optString("time"), tipCash = o.optDouble("tipCash", 0.0),
         lat = if (o.isNull("lat")) null else o.optDouble("lat"), lon = if (o.isNull("lon")) null else o.optDouble("lon"),
-        country = o.optString("country"), poi = o.optString("poi"), catReason = o.optString("catReason")
+        country = o.optString("country"), poi = o.optString("poi"), catReason = o.optString("catReason"),
+        eurRate = if (o.isNull("eurRate")) null else o.optDouble("eurRate"), eurDate = o.optString("eurDate"),
+        declaration = o.optBoolean("declaration", false)
     )
 
     private fun smsTo(s: SmsCharge) = JSONObject().apply {

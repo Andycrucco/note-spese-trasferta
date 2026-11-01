@@ -14,7 +14,9 @@ App personale per le note spese di viaggio: legge gli SMS di addebito della banc
 - **Commensali**: nomi delle persone a tavola, con suggerimenti dai nomi già usati.
 - **PDF A4** con dati e foto, chiamato come nell'organizzatore note spese: `2026-03-22_CENA_700.00_MXN_CAFE_LAUREL_ARMIDA_MANCIA_70.00_MXN_VISA_1234.pdf`, salvato in *Download/Scontrini* e inviabile a OneDrive.
 - **Più addebiti in fila**: dopo uno scontrino propone il prossimo addebito senza foto.
-- **Totali** per valuta, carta e categoria.
+- **Totali** per valuta, carta e categoria, più il **controvalore in euro** al cambio BCE del giorno di ogni spesa (servizio Frankfurter; nel PDF e nel CSV).
+- **Scontrino mancante**: da un addebito senza foto (tieni premuto) crei una dichiarazione sostitutiva in PDF, chiaramente etichettata, da firmare.
+- **Promemoria alle 21** se ci sono addebiti ancora senza scontrino.
 - **Cartella per Ztravel**: `Download/NoteSpese/NoteSpese_<trasferta>/` con, in ordine cronologico, `001_<nome>.pdf` e `001_<nome>.jpg` per ogni scontrino e `Riepilogo_Ztravel.csv` (N., data, ora, tipo spesa, importi, mance, carta, commensali, persone, paese, allegati, verifica banca). La stessa cartella viene impacchettata in ZIP da inviare a OneDrive.
 - **Logo aziendale**: dal menu ⋮ → Impostazioni → *Scegli logo aziendale* puoi caricare il file ufficiale del logo; compare in testata e sui PDF.
 

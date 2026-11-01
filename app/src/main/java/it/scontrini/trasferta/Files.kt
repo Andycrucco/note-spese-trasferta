@@ -116,7 +116,7 @@ object PdfMaker {
         val page = doc.startPage(PdfDocument.PageInfo.Builder(W, H, 1).create())
         val c = page.canvas
         val cw = W - 2 * M
-        var y = header(ctx, c, e.place.ifBlank { "Scontrino" })
+        var y = header(ctx, c, if (e.declaration) "Dichiarazione sostitutiva: scontrino non disponibile" else e.place.ifBlank { "Scontrino" })
         val label = paint(8f, false, INK2).apply { letterSpacing = 0.08f }
         val value = paint(11.5f, true, INK)
         val cu = " " + e.currency
@@ -133,6 +133,7 @@ object PdfMaker {
             if (e.people > 1) rows.add("MANCIA A PERSONA" to Fmt.money(e.tipTotal / e.people) + cu + "  (" + e.people + " persone)")
         }
         rows.add("TOTALE SPESO" to Fmt.money(e.total) + cu)
+        if (e.currency != "EUR") e.totalEur?.let { rows.add("CONTROVALORE IN EURO" to Fmt.money(it) + " EUR (BCE " + Fmt.dmy(e.eurDate) + ")") }
         if (e.people > 1) rows.add("TOTALE A PERSONA" to Fmt.money(e.total / e.people) + cu)
         rows.add("TRASFERTA" to e.trip.ifBlank { "-" })
         if (e.poi.isNotEmpty() || e.country.isNotEmpty()) rows.add("LUOGO DELLA FOTO" to listOf(e.poi, e.country).filter { it.isNotEmpty() }.joinToString(" · "))
@@ -154,7 +155,25 @@ object PdfMaker {
         }
         c.drawLine(M, y, W - M, y, Paint().apply { color = LINE; strokeWidth = 1f })
         y += 10f
-        if (photo != null) {
+        if (e.declaration) {
+            val body = paint(11f, false, INK); val bold = paint(11f, true, INK)
+            val me = Store.myName.ifBlank { "________________________" }
+            val text = listOf(
+                "Io sottoscritto/a $me dichiaro che il documento di spesa relativo alla spesa sopra indicata non è disponibile.",
+                "Esercente: " + e.place.ifBlank { "-" } + ". Data: " + Fmt.dmy(e.date) + ". Importo: " + Fmt.money(e.charged) + " " + e.currency + (if (e.card.isNotBlank()) ", pagato con " + e.card else "") + ".",
+                if (e.bankId != null) "L'addebito risulta dall'SMS di notifica della banca, abbinato a questa spesa." else "",
+                "Motivo: [ ] smarrito   [ ] non rilasciato dall'esercente   [ ] illeggibile   [ ] altro: ______________________",
+                "Dichiaro inoltre che la spesa è stata sostenuta per motivi di servizio durante la trasferta \"" + e.trip + "\" e che non è stata rimborsata in altro modo."
+            ).filter { it.isNotEmpty() }
+            y += 6f
+            for (t in text) { for (l in wrap(t, body, cw, 4)) { c.drawText(l, M, y, body); y += 15f }; y += 6f }
+            y += 30f
+            c.drawText("Luogo e data: ______________________________", M, y, bold)
+            y += 40f
+            c.drawText("Firma: _____________________________________", M, y, bold)
+            y += 30f
+            for (l in wrap("Documento generato dall'app Note spese trasferta come dichiarazione: non è uno scontrino.", paint(8.5f, false, INK2), cw, 2)) { c.drawText(l, M, y, paint(8.5f, false, INK2)); y += 11f }
+        } else if (photo != null) {
             val availH = H - M - y
             val s = min(cw / photo.width, availH / photo.height)
             val iw = photo.width * s; val ih = photo.height * s
@@ -286,7 +305,8 @@ object Exporter {
         val m = Store.match()
         val head = listOf("N.", "Data", "Ora", "Tipo spesa", "Descrizione", "Importo scontrino", "Mancia su scontrino",
             "Mancia contanti a tavola", "Mancia totale", "Mancia %", "Totale speso", "Addebitato su carta", "Valuta", "Carta",
-            "Commensali", "N. persone", "Totale a persona", "Paese", "Trasferta", "Allegato PDF", "Foto", "Verificato banca", "Categoria da")
+            "Commensali", "N. persone", "Totale a persona", "Paese", "Trasferta", "Allegato PDF", "Foto", "Verificato banca", "Categoria da",
+            "Cambio EUR (BCE)", "Data cambio", "Totale EUR", "Dichiarazione")
         val sb = StringBuilder("﻿").append(head.joinToString(";")).append("\r\n")
         ordered(list).forEachIndexed { i, e ->
             val f = files[e.id]
@@ -297,7 +317,9 @@ object Exporter {
                 n(e.total), n(e.charged), e.currency, e.card,
                 e.guests.joinToString(", "), e.people.toString(), n(e.total / e.people),
                 Categorizer.countryFor(e.country, e.currency), e.trip,
-                f?.first ?: e.pdf ?: "", f?.second ?: "", if (m.e2s.containsKey(e.id)) "Sì" else "No", e.catReason
+                f?.first ?: e.pdf ?: "", f?.second ?: "", if (m.e2s.containsKey(e.id)) "Sì" else "No", e.catReason,
+                e.eurRate?.let { String.format(java.util.Locale.ITALY, "%.6f", it) } ?: "", Fmt.dmy(e.eurDate),
+                e.totalEur?.let { n(it) } ?: "", if (e.declaration) "Sì" else ""
             ).joinToString(";") { cell(it) }).append("\r\n")
         }
         return sb.toString()
@@ -329,6 +351,7 @@ object Exporter {
         val zipF = File(exportDir(ctx), "$dirName.zip")
         val files = HashMap<String, Pair<String, String?>>()
         val items = ordered(list)
+        try { Fx.fill(ctx, items) } catch (_: Exception) {}
         var ok = true; var photos = 0
         ZipOutputStream(zipF.outputStream()).use { z ->
             items.forEachIndexed { i, e ->

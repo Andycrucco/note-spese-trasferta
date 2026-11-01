@@ -141,3 +141,41 @@ object Cpi {
         if (pts.isEmpty()) null else Series(iso2, name, pts.sortedBy { it.year }, meta?.optString("lastupdated") ?: "", at)
     } catch (e: Exception) { null }
 }
+
+/** Cambio di riferimento BCE verso l'euro (servizio Frankfurter), con copia sul telefono. */
+object Fx {
+    private fun file(ctx: Context) = File(ctx.filesDir, "fx.json")
+
+    @Synchronized
+    fun rate(ctx: Context, date: String, from: String): Pair<Double, String>? {
+        val cur = from.uppercase()
+        if (Fmt.isoValid(date).isEmpty()) return null
+        if (cur == "EUR") return 1.0 to date
+        if (!Regex("^[A-Z]{3}$").matches(cur)) return null
+        val key = "$date|$cur"
+        val cache = try { if (file(ctx).exists()) JSONObject(file(ctx).readText()) else JSONObject() } catch (e: Exception) { JSONObject() }
+        cache.optJSONObject(key)?.let { return it.getDouble("r") to it.getString("d") }
+        val d = if (date > Fmt.today()) Fmt.today() else date
+        val body = httpGet("https://api.frankfurter.dev/v1/$d?base=$cur&symbols=EUR") ?: return null
+        return try {
+            val o = JSONObject(body)
+            val r = o.optJSONObject("rates")?.optDouble("EUR", Double.NaN) ?: return null
+            if (r.isNaN() || r <= 0) return null
+            val rd = o.optString("date", d)
+            cache.put(key, JSONObject().put("r", r).put("d", rd))
+            try { file(ctx).writeText(cache.toString()) } catch (_: Exception) {}
+            r to rd
+        } catch (e: Exception) { null }
+    }
+
+    /** Completa il cambio delle spese che non lo hanno ancora. Da chiamare fuori dal thread principale. */
+    fun fill(ctx: Context, list: List<Expense>): Int {
+        var n = 0
+        for (e in list) {
+            if (e.eurRate != null) continue
+            val r = rate(ctx, e.date, e.currency) ?: continue
+            e.eurRate = r.first; e.eurDate = r.second; n++
+        }
+        return n
+    }
+}

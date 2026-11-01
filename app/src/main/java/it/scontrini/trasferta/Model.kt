@@ -25,8 +25,14 @@ data class Expense(
     var lon: Double? = null,
     var country: String = "",
     var poi: String = "",
-    var catReason: String = ""
+    var catReason: String = "",
+    /** cambio BCE verso l'euro alla data della spesa (1 EUR se già in euro) */
+    var eurRate: Double? = null,
+    var eurDate: String = "",
+    /** scontrino non disponibile: il PDF è una dichiarazione sostitutiva */
+    var declaration: Boolean = false
 ) {
+    val totalEur: Double? get() = eurRate?.let { Fmt.round2(total * it) }
     /** quanto addebitato sulla carta: è quello che si confronta con l'SMS */
     val charged: Double get() = amount + tip
     val tipTotal: Double get() = tip + tipCash
@@ -35,6 +41,7 @@ data class Expense(
     val isMeal: Boolean get() = category in MEALS
     fun tipPct(): Double = if (amount > 0) tipTotal / amount * 100 else 0.0
     fun pdfName(): String = Fmt.pdfName(date, category, amount, currency, place, tipTotal, card)
+        .let { if (declaration) it.removeSuffix(".pdf") + "_DICHIARAZIONE.pdf" else it }
 }
 
 data class SmsCharge(
