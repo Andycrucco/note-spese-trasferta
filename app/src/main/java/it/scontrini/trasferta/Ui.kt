@@ -84,6 +84,16 @@ fun View.padForSystemBars(extraBottom: Int = 0) {
         val bars = ins.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
         val ime = ins.getInsets(WindowInsetsCompat.Type.ime())
         v.setPadding(l + bars.left, t, r + bars.right, b + maxOf(bars.bottom, ime.bottom) + extraBottom)
+        // con l'edge-to-edge di Android 15+ alcuni telefoni disegnano il contenuto sotto barra di stato e barra del titolo:
+        // se succede, sposto il contenuto quanto basta perché resti visibile
+        v.post {
+            val act = v.context as? androidx.appcompat.app.AppCompatActivity
+            val ab = act?.supportActionBar?.takeIf { it.isShowing }?.height ?: 0
+            val loc = IntArray(2)
+            (v.parent as? View ?: v).getLocationInWindow(loc)
+            val need = bars.top + ab - loc[1]
+            v.setPadding(v.paddingLeft, t + maxOf(0, need), v.paddingRight, v.paddingBottom)
+        }
         ins
     }
     ViewCompat.requestApplyInsets(this)

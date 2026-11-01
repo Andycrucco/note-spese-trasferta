@@ -17,6 +17,8 @@ object Store {
     var senders = ""
     var myName = ""
     var myEmail = ""
+    /** ultime 4 cifre della carta aziendale: gli SMS e i movimenti di altre carte vengono ignorati */
+    var myCard = ""
     /** blocco con impronta/PIN all'apertura */
     var lockEnabled = false
     var useLocation = true
@@ -60,6 +62,7 @@ object Store {
                 senders = o.optString("senders", "")
                 myName = o.optString("myName", "")
                 myEmail = o.optString("myEmail", "")
+                myCard = o.optString("myCard", "")
                 lockEnabled = o.optBoolean("lockEnabled", false)
                 useLocation = o.optBoolean("useLocation", true)
                 capAmount = o.optDouble("capAmount", 0.0)
@@ -84,7 +87,7 @@ object Store {
         o.put("expenses", JSONArray().apply { expenses.forEach { put(expTo(it)) } })
         o.put("sms", JSONArray().apply { sms.forEach { put(smsTo(it)) } })
         o.put("trip", trip); o.put("currency", currency); o.put("senders", senders)
-        o.put("myName", myName); o.put("myEmail", myEmail); o.put("lockEnabled", lockEnabled); o.put("useLocation", useLocation)
+        o.put("myName", myName); o.put("myEmail", myEmail); o.put("myCard", myCard); o.put("lockEnabled", lockEnabled); o.put("useLocation", useLocation)
         o.put("capAmount", capAmount); o.put("capCurrency", capCurrency); o.put("capYear", capYear)
         o.put("downloadUrl", downloadUrl)
         val cut = System.currentTimeMillis() - 30L * 86_400_000L
@@ -160,13 +163,14 @@ object Store {
     private fun smsTo(s: SmsCharge) = JSONObject().apply {
         put("id", s.id); put("date", s.date); put("amount", s.amount); put("currency", s.currency)
         put("merchant", s.merchant); put("card", s.card); put("network", s.network); put("created", s.created)
-        put("time", s.time)
+        put("time", s.time); put("source", s.source); put("done", s.done); put("inStmt", s.inStmt)
     }
 
     private fun smsFrom(o: JSONObject) = SmsCharge(
         id = o.getString("id"), date = o.optString("date"), amount = o.optDouble("amount", 0.0),
         currency = o.optString("currency"), merchant = o.optString("merchant"), card = o.optString("card"),
         network = o.optString("network"), created = o.optLong("created", 0L),
-        time = o.optString("time")
+        time = o.optString("time"), source = o.optString("source"),
+        done = o.optBoolean("done", false), inStmt = o.optBoolean("inStmt", false)
     )
 }

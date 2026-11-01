@@ -54,8 +54,16 @@ data class SmsCharge(
     val network: String,
     val created: Long,
     /** ora dell'addebito (dal testo dell'SMS o dall'ora di arrivo), "" se non nota */
-    val time: String = ""
+    val time: String = "",
+    /** "" o "sms" = SMS della banca; "estratto" = riga dell'estratto conto */
+    val source: String = "",
+    /** completata su un altro dispositivo (per esempio nella versione web) */
+    var done: Boolean = false,
+    /** SMS confermato da un estratto conto caricato dopo */
+    var inStmt: Boolean = false
 ) {
+    val isStmt: Boolean get() = source == "estratto"
+
     fun cardLabel(): String = when {
         network.isNotEmpty() && card.isNotEmpty() -> "$network $card"
         network.isNotEmpty() -> network
@@ -65,6 +73,78 @@ data class SmsCharge(
 }
 
 /** Abbinamento tra scontrini e addebiti della banca. Funzioni pure sulle liste. */
+/**
+ * Doppioni tra SMS, estratti conto e transazioni ricevute dalla versione web.
+ * Stesso importo e valuta, stessa carta (se nota) e date vicine: l'estratto conto registra
+ * spesso l'addebito 1-3 giorni dopo l'SMS. Uno a uno: ogni movimento già presente
+ * può assorbire una sola riga per importazione, così due taxi uguali nello stesso giorno restano due.
+ */
+object Dedupe {
+    fun same(a: SmsCharge, b: SmsCharge, days: Long): Boolean {
+        if (abs(a.amount - b.amount) > 0.015) return false
+        if (a.currency.isNotEmpty() && b.currency.isNotEmpty() && a.currency != b.currency) return false
+        if (a.card.isNotEmpty() && b.card.isNotEmpty() && a.card != b.card) return false
+        return (Fmt.daysBetween(a.date, b.date) ?: 0L) <= days
+    }
+
+    fun tolerance(a: SmsCharge, b: SmsCharge): Long = when {
+        a.isStmt && b.isStmt -> 0
+        a.isStmt || b.isStmt -> 3
+        else -> 1
+    }
+
+    /** strictSms: tra due SMS conta solo l'identico (due spese uguali in giorni vicini sono vere) */
+    fun find(rec: SmsCharge, pool: List<SmsCharge>, used: Set<String>, strictSms: Boolean): SmsCharge? {
+        pool.firstOrNull { it.id == rec.id }?.let { return it }
+        return pool.filter { it.id !in used }
+            .filter { !(strictSms && !it.isStmt && !rec.isStmt) }
+            .filter { same(rec, it, tolerance(rec, it)) }
+            .minByOrNull { Fmt.daysBetween(rec.date, it.date) ?: 0L }
+    }
+}
+
+/** Scambio con la versione web: una riga "NS1|fonte|data|ora|importo|valuta|carta|circuito|esercente" per transazione. */
+object Ns {
+    fun smsId(date: String, amount: Double, currency: String, card: String, merchant: String) =
+        "s" + Fmt.hash(listOf(date, Fmt.dot(amount), currency, card, Fmt.slug(merchant, 20)).joinToString("|"))
+
+    fun stmtId(date: String, amount: Double, currency: String, merchant: String, k: Int) =
+        "e" + Fmt.hash(listOf(date, Fmt.dot(amount), currency, Fmt.slug(merchant, 20), k.toString()).joinToString("|"))
+
+    fun line(s: SmsCharge): String {
+        fun c(v: String) = v.replace(Regex("[|\\r\\n]"), " ").trim()
+        return listOf("NS1", if (s.isStmt) "estratto" else "sms", c(s.date), c(s.time), Fmt.dot(s.amount), c(s.currency), c(s.card), c(s.network), c(s.merchant)).joinToString("|")
+    }
+
+    fun text(list: List<SmsCharge>): String =
+        "Note spese: ${list.size} " + (if (list.size == 1) "transazione" else "transazioni") + " da completare\n" + list.joinToString("\n") { line(it) }
+
+    fun isOwnLine(l: String) = l.trim().startsWith("NS1|") || Regex("^Note spese: \\d+ transazion", RegexOption.IGNORE_CASE).containsMatchIn(l.trim())
+
+    fun parse(text: String): List<SmsCharge> {
+        val out = mutableListOf<SmsCharge>()
+        val seen = HashMap<String, Int>()
+        for (raw in text.lines()) {
+            val p = raw.trim().split("|")
+            if (p.size < 9 || p[0] != "NS1") continue
+            val amount = Fmt.num(p[4]) ?: continue
+            if (amount <= 0) continue
+            val stmt = p[1] == "estratto"
+            val date = Fmt.isoValid(p[2]); val cur = p[5].takeIf { Regex("^[A-Z]{3}$").matches(it) } ?: ""
+            val card = p[6].takeIf { Regex("^\\d{4}$").matches(it) } ?: ""
+            val merchant = p.drop(8).joinToString(" ").take(80)
+            val key = listOf(date, Fmt.dot(amount), cur, Fmt.slug(merchant, 20)).joinToString("|")
+            val k = seen.getOrDefault(key, 0); seen[key] = k + 1
+            out.add(SmsCharge(
+                if (stmt) stmtId(date, amount, cur, merchant, k) else smsId(date, amount, cur, card, merchant),
+                date, Fmt.round2(amount), cur, merchant, card,
+                p[7].takeIf { it in setOf("VISA", "MASTERCARD", "AMEX") } ?: "", System.currentTimeMillis(),
+                p[3].takeIf { Regex("^\\d{2}:\\d{2}$").matches(it) } ?: "", if (stmt) "estratto" else "sms"))
+        }
+        return out
+    }
+}
+
 /**
  * Numerazione degli scontrini nell'ordine delle transazioni in banca.
  * Non viene salvata: si ricalcola a ogni apertura ed esportazione, così un SMS aggiunto dopo
@@ -175,6 +255,6 @@ object Match {
     /** Addebiti ancora senza scontrino, dal più vecchio. */
     fun pending(expenses: List<Expense>, sms: List<SmsCharge>): List<SmsCharge> {
         val r = all(expenses, sms)
-        return sms.filter { !r.s2e.containsKey(it.id) }.sortedBy { it.date }
+        return sms.filter { !r.s2e.containsKey(it.id) && !it.done }.sortedBy { it.date }
     }
 }

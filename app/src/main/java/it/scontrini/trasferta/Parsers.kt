@@ -94,6 +94,8 @@ data class ReceiptData(
 object ReceiptParser {
     private val AMT = Regex("""(?<![\d.,])(\d{1,3}(?:[.,]\d{3})+[.,]\d{2}|\d+[.,]\d{2})(?![\d])""")
     private val TOTAL = Regex("""\b(total|totale|importe|a pagar|tot\.?|amount due|grand total|da pagare)\b""", RegexOption.IGNORE_CASE)
+    /** etichette del totale finale: vincono su "total" semplice e sulle righe dei piatti */
+    private val GRAND = Regex("""(gran\s*total|grand\s*total|total\s*a\s*pagar|importe\s*total|total\s*general|totale\s*(complessivo|da\s*pagare|euro|eur)|total\s*(mxn|m\.?n\.?|usd|eur)|amount\s*due|da\s*pagare|total\s*neto)""", RegexOption.IGNORE_CASE)
     private val NOT_TOTAL = Regex(
         """(sub ?-?total|subtotale|imponibile|iva\b|tax|impuesto|cambio|change|recibido|pagado con|contanti ricevuti|resto|descuento|sconto|ahorro)""",
         RegexOption.IGNORE_CASE
@@ -122,7 +124,7 @@ object ReceiptParser {
         val all = lines.flatMap { amounts(it) }
 
         // totale e mancia vicino alle loro etichette (riga stessa o le due successive)
-        val totals = mutableListOf<Double>(); val tips = mutableListOf<Double>()
+        val totals = mutableListOf<Double>(); val tips = mutableListOf<Double>(); val grand = mutableListOf<Double>()
         for (i in lines.indices) {
             val l = lines[i]
             val isTip = TIP.containsMatchIn(l)
@@ -134,8 +136,10 @@ object ReceiptParser {
             if (vals.isEmpty()) continue
             if (isTip && !isTot) tips.add(vals.last())
             else if (isTip && isTot) totals.add(vals.max())
-            else totals.add(vals.last())
+            else { totals.add(vals.last()); if (GRAND.containsMatchIn(l)) grand.add(vals.last()) }
         }
+        // il totale finale stampato in grande vince sul primo "total" trovato (spesso è una riga di piatto o il subtotale)
+        if (grand.isNotEmpty()) { totals.clear(); totals.add(grand.max()) }
         var amount: Double? = null
         var tip: Double? = tips.firstOrNull()
 
@@ -209,6 +213,79 @@ object ReceiptParser {
         }
 
         val cat = Categorizer.fromText(joined)?.category ?: if (tip != null) "Pasto" else null
-        return ReceiptData(date, place, amount?.let { Fmt.round2(it) }, tip?.let { Fmt.round2(it) }, cur, card, cat, unsure, Fmt.time(joined), joined)
+        return ReceiptData(date, place, amount?.let { Fmt.round2(it) }, tip?.let { Fmt.round2(it) }, cur, card, cat, unsure, time(joined), joined)
     }
+
+    /** Ora dello scontrino, con "p. m." / "pm" convertiti in 24 ore. Preferisce la riga con "hora"/"ora"/"time". */
+    fun time(text: String): String {
+        val re = Regex("""\b([01]?\d|2[0-3])[:h]([0-5]\d)(?::[0-5]\d)?\s*([ap])?\.?\s?(m\.?)?(?![a-z])""", RegexOption.IGNORE_CASE)
+        val lines = text.lines()
+        val pick = lines.firstOrNull { Regex("""\b(hora|ora|time|entrada)\b""", RegexOption.IGNORE_CASE).containsMatchIn(it) && re.containsMatchIn(it) } ?: text
+        val m = re.find(pick) ?: return ""
+        var h = m.groupValues[1].toInt()
+        val ap = m.groupValues[3].lowercase(); val mm = m.groupValues[4]
+        if (mm.isNotEmpty() || ap.isNotEmpty() && m.value.lowercase().contains("m")) {
+            if (ap == "p" && h < 12) h += 12
+            if (ap == "a" && h == 12) h = 0
+        }
+        return h.toString().padStart(2, '0') + ":" + m.groupValues[2]
+    }
+}
+
+/** Righe dell'estratto conto (testo da CSV, Excel o OCR del PDF) → movimenti di spesa. */
+object StatementLines {
+    data class Line(val date: String, val amount: Double, val currency: String, val merchant: String, val card: String, val time: String, val k: Int)
+
+    private val MON = mapOf("gen" to 1, "jan" to 1, "ene" to 1, "feb" to 2, "mar" to 3, "apr" to 4, "abr" to 4, "mag" to 5, "may" to 5,
+        "giu" to 6, "jun" to 6, "lug" to 7, "jul" to 7, "ago" to 8, "aug" to 8, "set" to 9, "sep" to 9, "ott" to 10, "oct" to 10,
+        "nov" to 11, "dic" to 12, "dec" to 12)
+    private val AMOUNT = Regex("""-?\s?\d{1,3}(?:[.\s']\d{3})+[.,]\d{2}\b|-?\d+[.,]\d{2}\b""")
+    private val SKIP = Regex("saldo|totale|total|balance|accredit|rimbors|refund|abono|pagamento ricevuto|pago recibido|bonifico a vostro favore|storno", RegexOption.IGNORE_CASE)
+
+    private fun date(l: String): String {
+        Regex("""\b(\d{4})-(\d{2})-(\d{2})\b""").find(l)?.let { return Fmt.isoValid("${it.groupValues[1]}-${it.groupValues[2]}-${it.groupValues[3]}") }
+        Regex("""\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})\b""").find(l)?.let {
+            val y = it.groupValues[3].let { y -> if (y.length == 2) "20$y" else y }
+            return Fmt.isoValid("$y-${it.groupValues[2].padStart(2, '0')}-${it.groupValues[1].padStart(2, '0')}")
+        }
+        Regex("""\b(\d{1,2})[ -]([a-z]{3})[a-z]*\.?[ -](\d{2,4})\b""").find(l.lowercase())?.let {
+            val m = MON[it.groupValues[2]] ?: return ""
+            val y = it.groupValues[3].let { y -> if (y.length == 2) "20$y" else y }
+            return Fmt.isoValid("$y-${m.toString().padStart(2, '0')}-${it.groupValues[1].padStart(2, '0')}")
+        }
+        return ""
+    }
+
+    class Raw(val date: String, val amount: Double, val neg: Boolean, val currency: String, val merchant: String, val card: String, val time: String)
+
+    fun parse(text: String, defaultCurrency: String): List<Line> {
+        val raws = mutableListOf<Raw>()
+        for (l in text.lines()) {
+            if (l.count { it.isDigit() } < 4 || SKIP.containsMatchIn(l)) continue
+            val d = date(l); if (d.isEmpty()) continue
+            val am = AMOUNT.findAll(l).toList(); if (am.isEmpty()) continue
+            val raw = am.last().value
+            val amt = Fmt.num(raw.replace(Regex("[-\\s']"), "")) ?: continue
+            if (amt <= 0 || amt > 1e7) continue
+            val cur = Regex("""\b(EUR|USD|MXN|GBP|CHF|CAD|PLN|BRL|CNY|JPY)\b""").find(l)?.groupValues?.get(1) ?: ""
+            val card = Regex("""(?:\*+|x{2,}|carta|card|tarjeta)\D{0,6}(\d{4})\b""", RegexOption.IGNORE_CASE).find(l)?.groupValues?.get(1) ?: ""
+            val time = Regex("""\b([01]\d|2[0-3]):([0-5]\d)\b""").find(l)?.let { it.groupValues[1] + ":" + it.groupValues[2] } ?: ""
+            val desc = l.replace(Regex("""\b\d{1,4}[/.-]\d{1,2}[/.-]\d{2,4}\b"""), " ").replace(AMOUNT, " ")
+                .replace(Regex("""\b(EUR|USD|MXN|GBP|CHF|CAD)\b"""), " ").replace(Regex("""\b\d{2}:\d{2}(:\d{2})?\b"""), " ")
+                .replace(Regex("[;,\"\\t|]+"), " ").replace(Regex("\\s+"), " ").trim().take(40)
+            raws.add(Raw(d, Fmt.round2(amt), raw.trim().startsWith("-"), cur, desc, card, time))
+        }
+        // conto corrente: spese negative; carta di credito: positive. Tengo il segno più frequente.
+        val nNeg = raws.count { it.neg }
+        val keepNeg = nNeg > raws.size / 2
+        val fileCur = raws.mapNotNull { it.currency.ifEmpty { null } }.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key ?: defaultCurrency
+        val seen = HashMap<String, Int>()
+        return raws.filter { nNeg == 0 || it.neg == keepNeg }.map { r ->
+            val cur = r.currency.ifEmpty { fileCur }
+            val key = listOf(r.date, Fmt.dot(r.amount), cur, Fmt.slug(r.merchant, 20)).joinToString("|")
+            val k = seen.getOrDefault(key, 0); seen[key] = k + 1
+            Line(r.date, r.amount, cur, r.merchant, r.card, r.time, k)
+        }
+    }
+
 }

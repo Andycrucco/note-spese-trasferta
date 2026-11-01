@@ -50,9 +50,13 @@ object SmsIngest {
         if (!accept(sender, body)) return emptyList()
         val added = mutableListOf<SmsCharge>()
         for (p in SmsParser.parse(body)) {
+            // un'altra carta (personale o di un collega): non è una spesa da rendicontare
+            if (Store.myCard.isNotEmpty() && p.card.isNotEmpty() && p.card != Store.myCard) continue
             val date = p.date.ifEmpty { Fmt.isoOf(whenMs) }
             val id = "s" + Fmt.hash(listOf(date, Fmt.dot(p.amount), p.currency, p.card, Fmt.slug(p.merchant, 20)).joinToString("|"))
             if (Store.smsById(id) != null) continue
+            // già arrivato da un estratto conto o dalla versione web
+            if (Dedupe.find(SmsCharge(id, date, p.amount, p.currency.ifEmpty { Store.currency }, p.merchant, p.card, p.network, 0L), Store.sms, emptySet(), strictSms = true) != null) continue
             // ora dell'addebito: dal testo; altrimenti l'ora di arrivo, se l'SMS è arrivato davvero ora sul telefono
             val time = Fmt.time(body).ifEmpty {
                 if (exactTime && date == Fmt.isoOf(whenMs)) java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).format(java.util.Date(whenMs)) else ""
@@ -69,6 +73,23 @@ object SmsIngest {
             }
         }
         return added
+    }
+
+    class Result(val added: List<SmsCharge>, val dup: Int)
+
+    /** Righe NS1 dalla versione web (o da un altro telefono): salva le nuove, salta i doppioni. */
+    @Synchronized
+    fun importNs(ctx: Context, text: String): Result {
+        Store.load(ctx)
+        val used = HashSet<String>(); val added = mutableListOf<SmsCharge>(); var dup = 0
+        for (c in Ns.parse(text)) {
+            if (Store.myCard.isNotEmpty() && c.card.isNotEmpty() && c.card != Store.myCard) continue
+            val d = Dedupe.find(c, Store.sms, used, strictSms = false)
+            if (d != null) { used.add(d.id); dup++; continue }
+            Store.sms.add(c); used.add(c.id); added.add(c)
+        }
+        if (added.isNotEmpty()) Store.save(ctx)
+        return Result(added, dup)
     }
 }
 

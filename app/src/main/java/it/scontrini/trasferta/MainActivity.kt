@@ -40,6 +40,7 @@ class MainActivity : AppCompatActivity() {
     private val chooseAccount = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         r.data?.getStringExtra(android.accounts.AccountManager.KEY_ACCOUNT_NAME)?.let { onAccount?.invoke(it) }
     }
+    private val pickStatement = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { importStatement(it) } }
     private val pickLogo = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let { saveLogo(it) } }
 
     override fun onCreate(b: Bundle?) {
@@ -65,6 +66,7 @@ class MainActivity : AppCompatActivity() {
         Lock.guard(this)
         Store.reload(this)
         render()
+        askCardOnce()
         if (Store.expenses.any { it.eurRate == null }) Thread {
             val n = try { synchronized(Store) { Fx.fill(this, Store.expenses).also { if (it > 0) Store.save(this) } } } catch (e: Exception) { 0 }
             if (n > 0) runOnUiThread { render() }
@@ -115,6 +117,21 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    /** Chi aveva già il profilo: chiedo una volta le ultime 4 cifre della carta aziendale. */
+    private fun askCardOnce() {
+        val pr = getSharedPreferences("ui", MODE_PRIVATE)
+        if (Store.myCard.isNotEmpty() || !Store.consentShown(this) || pr.getBoolean("cardAsked", false)) return
+        pr.edit().putBoolean("cardAsked", true).apply()
+        val inp = input("Es. 1234", InputType.TYPE_CLASS_NUMBER).apply { filters = arrayOf(android.text.InputFilter.LengthFilter(4)) }
+        val wrap = vbox().apply { setPadding(dp(22), dp(8), dp(22), 0); addView(inp) }
+        wrap.addView(txt("L'app terrà solo gli addebiti di questa carta e la proporrà nelle nuove spese. Puoi cambiarla in Profilo e sicurezza.", 12.5f, R.color.ink2), lp(top = dp(6)))
+        AlertDialog.Builder(this).setTitle("Ultime 4 cifre della carta aziendale").setView(wrap)
+            .setPositiveButton("Salva") { _, _ ->
+                inp.text.toString().filter { it.isDigit() }.takeIf { it.length == 4 }?.let { Store.myCard = it; Store.save(this); render() }
+            }
+            .setNegativeButton("Più tardi", null).show()
+    }
+
     private fun pickGoogleAccount(onPicked: (String) -> Unit) {
         onAccount = onPicked
         try {
@@ -130,6 +147,11 @@ class MainActivity : AppCompatActivity() {
         val mail = input("nome@esempio.com", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS).apply { setText(Store.myEmail) }
         box.addView(field("Nome e cognome", name), lp(top = dp(12)))
         box.addView(field("Email", mail), lp(top = dp(12)))
+        val cardIn = input("Es. 1234", InputType.TYPE_CLASS_NUMBER).apply {
+            setText(Store.myCard); filters = arrayOf(android.text.InputFilter.LengthFilter(4))
+        }
+        box.addView(field("Ultime 4 cifre della carta aziendale", cardIn), lp(top = dp(12)))
+        box.addView(txt("Ognuno usa la sua: l'app tiene solo gli addebiti di questa carta e la propone nelle nuove spese.", 12f, R.color.ink2), lp(top = dp(2)))
         box.addView(btn("Usa un account Google del telefono", false) { pickGoogleAccount { mail.setText(it) } }, lp(top = dp(8)))
         val lockBox = CheckBox(this).apply {
             text = "Proteggi l'app con impronta o PIN del telefono"; isChecked = Store.lockEnabled || first
@@ -143,6 +165,7 @@ class MainActivity : AppCompatActivity() {
                 val m = mail.text.toString().trim()
                 Store.myName = name.text.toString().trim().take(60)
                 Store.myEmail = if (android.util.Patterns.EMAIL_ADDRESS.matcher(m).matches()) m else ""
+                Store.myCard = cardIn.text.toString().filter { it.isDigit() }.takeIf { it.length == 4 } ?: """
                 val wantLock = lockBox.isChecked
                 if (wantLock && !Store.lockEnabled) {
                     // conferma con impronta/PIN prima di attivare il blocco
@@ -259,7 +282,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (Store.myName.isNotBlank()) {
-            root.addView(txt("Ciao " + Store.myName.substringBefore(' ') + (if (Store.lockEnabled) "  ·  app protetta" else ""), 13f, R.color.ink2), lp(top = dp(6)))
+            root.addView(txt("Ciao " + Store.myName.substringBefore(' ') + (if (Store.myCard.isNotEmpty()) "  ·  carta " + Store.myCard else "") + (if (Store.lockEnabled) "  ·  app protetta" else ""), 13f, R.color.ink2), lp(top = dp(6)))
         }
         // trasferta
         val trip = input("Es. Città del Messico ott 2026").apply {
@@ -303,22 +326,32 @@ class MainActivity : AppCompatActivity() {
         }, LinearLayout.LayoutParams(0, -2, 1f))
         root.addView(row, lp(top = dp(8)))
         if (BuildConfig.SMS) root.addView(btn("Cerca addebiti negli SMS recenti", false) { importRecent() }, lp(top = dp(8)))
-        else root.addView(btn("Incolla SMS della banca", false) { pasteSms() }, lp(top = dp(8)))
         root.addView(btn(if (Table.active) "Sono a tavola: Bluetooth attivo · mostra il mio QR" else "Sono a tavola: QR, NFC e Bluetooth", false) {
             Tavolo.showMine(this) { if (!Table.active) toggleTable() }
         }, lp(top = dp(8)))
 
-        // addebiti senza scontrino
+        // transazioni da completare: SMS ed estratto conto senza scontrino
         val pend = Store.pending()
-        if (pend.isNotEmpty()) {
-            root.addView(cap("Addebiti senza scontrino (${pend.size})"), lp(top = dp(22)))
+        root.addView(cap("Da completare (${pend.size})"), lp(top = dp(22)))
+        val todoRow = hbox()
+        todoRow.addView(btn("Incolla SMS", false) { pasteSms() }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) })
+        todoRow.addView(btn("Estratto conto", false) {
+            try { pickStatement.launch(arrayOf("text/*", "application/pdf", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel", "application/octet-stream")) }
+            catch (e: Exception) { toast("Nessuna app per scegliere i file.") }
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        root.addView(todoRow, lp(top = dp(6)))
+        val doneElse = Store.sms.filter { it.done }
+        if (pend.isEmpty()) {
+            root.addView(txt("Niente da completare. Gli SMS salvati senza foto, quelli ricevuti dalla versione web e i movimenti nuovi dell'estratto conto compaiono qui.", 12.5f, R.color.ink2), lp(top = dp(6)))
+        } else {
             val (c, inner) = card()
             c.strokeColor = col(R.color.red)
             pend.forEachIndexed { i, s ->
                 val r = hbox().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(8), 0, dp(8)) }
                 val left = vbox()
                 left.addView(txt(s.merchant.ifBlank { "Esercente non indicato" }, 15f, bold = true))
-                left.addView(txt(listOf(Fmt.dayLabel(s.date), s.cardLabel()).filter { it.isNotEmpty() }.joinToString(" · "), 13f, R.color.ink2))
+                left.addView(txt(listOf(Fmt.dayLabel(s.date) + (if (s.time.isNotEmpty()) " " + s.time else ""), s.cardLabel(),
+                    if (s.isStmt) "da estratto conto" else if (s.inStmt) "SMS · in estratto conto" else "SMS").filter { it.isNotEmpty() }.joinToString(" · "), 13f, R.color.ink2))
                 r.addView(left, LinearLayout.LayoutParams(0, -2, 1f))
                 r.addView(mono(Fmt.money(s.amount) + " " + s.currency, 14f, bold = true))
                 r.setOnClickListener {
@@ -328,9 +361,14 @@ class MainActivity : AppCompatActivity() {
                 if (i > 0) inner.addView(View(this).apply { setBackgroundColor(col(R.color.line)) }, lp(h = dp(1)))
                 inner.addView(r)
             }
-            inner.addView(txt("Tocca per fotografare lo scontrino. Tieni premuto per la dichiarazione di scontrino mancante o per eliminare l'addebito.", 12f, R.color.ink2), lp(top = dp(6)))
+            inner.addView(txt("Tocca per fotografare o scegliere la foto dello scontrino. Tieni premuto per la dichiarazione, per segnarla come completata nella versione web o per eliminarla.", 12f, R.color.ink2), lp(top = dp(6)))
             root.addView(c, lp(top = dp(6)))
+            root.addView(btn("Invia alla versione web", false) { sendToWeb(pend) }, lp(top = dp(8)))
         }
+        if (doneElse.isNotEmpty()) root.addView(txt("Completate nella versione web: ${doneElse.size} · tocca per rimetterle da completare", 12.5f, R.color.ink2).apply {
+            setPadding(0, dp(8), 0, dp(4))
+            setOnClickListener { restoreDone(doneElse) }
+        })
 
         // storico trasferte
         val nTrips = trips().size
@@ -512,11 +550,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun smsMenu(s: SmsCharge) {
         AlertDialog.Builder(this).setTitle(Fmt.money(s.amount) + " " + s.currency + (if (s.merchant.isNotEmpty()) " · " + s.merchant else ""))
-            .setItems(arrayOf("Fotografa lo scontrino", "Scontrino non disponibile: dichiarazione", "Elimina l'addebito")) { _, w ->
+            .setItems(arrayOf("Fotografa lo scontrino", "Scegli la foto dalla galleria", "Scontrino non disponibile: dichiarazione", "Completata nella versione web", "Elimina l'addebito")) { _, w ->
                 when (w) {
                     0 -> startActivity(Intent(this, ExpenseActivity::class.java).putExtra(ExpenseActivity.EXTRA_SMS, s.id).putExtra(ExpenseActivity.EXTRA_CAMERA, true))
-                    1 -> startActivity(Intent(this, ExpenseActivity::class.java).putExtra(ExpenseActivity.EXTRA_SMS, s.id).putExtra(ExpenseActivity.EXTRA_DECL, true))
-                    2 -> deleteSms(s)
+                    1 -> startActivity(Intent(this, ExpenseActivity::class.java).putExtra(ExpenseActivity.EXTRA_SMS, s.id).putExtra(ExpenseActivity.EXTRA_GALLERY, true))
+                    2 -> startActivity(Intent(this, ExpenseActivity::class.java).putExtra(ExpenseActivity.EXTRA_SMS, s.id).putExtra(ExpenseActivity.EXTRA_DECL, true))
+                    3 -> { s.done = true; Store.save(this); render() }
+                    4 -> deleteSms(s)
                 }
             }.show()
     }
@@ -586,8 +626,73 @@ class MainActivity : AppCompatActivity() {
             setSingleLine(false); minLines = 4; maxLines = 10; setText(clip)
         }
         val wrap = vbox().apply { setPadding(dp(20), dp(8), dp(20), 0); addView(box) }
+        wrap.addView(txt("Puoi incollare più SMS insieme o l'elenco copiato dalla versione web. \"Salva\" li mette in Da completare: la foto la aggiungi quando vuoi.", 12f, R.color.ink2), lp(top = dp(6)))
         AlertDialog.Builder(this).setTitle("SMS della banca").setView(wrap)
-            .setPositiveButton("Leggi") { _, _ -> ShareActivity.handle(this, box.text.toString()) ; render() }
+            .setPositiveButton("Salva") { _, _ -> ShareActivity.handle(this, box.text.toString(), photo = false); render() }
+            .setNeutralButton("Salva e fotografa") { _, _ -> ShareActivity.handle(this, box.text.toString(), photo = true); render() }
+            .setNegativeButton("Annulla", null).show()
+    }
+
+    private fun sendToWeb(list: List<SmsCharge>) {
+        val text = Ns.text(list)
+        try {
+            startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "Invia alla versione web"))
+        } catch (e: Exception) {
+            getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText("Note spese", text))
+            toast("Copiato: incollalo nella versione web, scheda Da fare.")
+        }
+    }
+
+    private fun restoreDone(list: List<SmsCharge>) {
+        val labels = list.map { Fmt.money(it.amount) + " " + it.currency + " · " + it.merchant.ifBlank { "?" } + " · " + Fmt.dmy(it.date) }.toTypedArray()
+        val checked = BooleanArray(list.size)
+        AlertDialog.Builder(this).setTitle("Rimetti da completare")
+            .setMultiChoiceItems(labels, checked) { _, i, v -> checked[i] = v }
+            .setPositiveButton("Rimetti") { _, _ -> list.forEachIndexed { i, s -> if (checked[i]) s.done = false }; Store.save(this); render() }
+            .setNegativeButton("Annulla", null).show()
+    }
+
+    /** Estratto conto: legge il file, mostra i movimenti nuovi (spuntati) e salta i doppioni. */
+    private fun importStatement(uri: Uri) {
+        toast("Leggo l'estratto conto…")
+        Thread {
+            val res = try {
+                val text = Statement.readText(this, uri)
+                Result.success(Statement.prepare(Statement.parse(text, Store.currency)
+                    .filter { Store.myCard.isEmpty() || it.card.isEmpty() || it.card == Store.myCard }))
+            } catch (e: Exception) { Result.failure(e) }
+            runOnUiThread {
+                res.onFailure { e -> toast(if (e is Statement.Unsupported) e.message ?: "" else "Non riesco a leggere questo file. Prova il CSV o l'Excel dell'estratto conto.") }
+                res.onSuccess { rows -> statementPreview(rows) }
+            }
+        }.start()
+    }
+
+    private fun statementPreview(rows: List<Statement.Row>) {
+        if (rows.isEmpty()) { toast("Non ho trovato movimenti di spesa in questo file."); return }
+        val fresh = rows.filter { it.dup == null }
+        val dups = rows.filter { it.dup != null }
+        fun label(r: Statement.Row) = Fmt.money(r.charge.amount) + " " + r.charge.currency + " · " + r.charge.merchant.ifBlank { "Movimento" } + " · " + Fmt.dmy(r.charge.date) +
+            (r.expense?.let { "  (verifica \"" + it.place + "\")" } ?: "")
+        fun markInStmt() { dups.forEach { r -> r.dup?.let { if (!it.isStmt) it.inStmt = true } } }
+        if (fresh.isEmpty()) {
+            markInStmt(); Store.save(this)
+            AlertDialog.Builder(this).setTitle("Estratto conto").setMessage("${rows.size} movimenti letti: sono già tutti presenti. Niente da aggiungere.")
+                .setPositiveButton("OK", null).show(); return
+        }
+        val checked = BooleanArray(fresh.size) { true }
+        AlertDialog.Builder(this).setTitle("${fresh.size} nuovi · ${dups.size} già presenti")
+            .setMultiChoiceItems(fresh.map { label(it) }.toTypedArray(), checked) { _, i, v -> checked[i] = v }
+            .setPositiveButton("Aggiungi") { _, _ ->
+                var n = 0
+                fresh.forEachIndexed { i, r -> if (checked[i] && Store.smsById(r.charge.id) == null) { Store.sms.add(r.charge); n++ } }
+                markInStmt(); Store.save(this); render()
+                toast((if (n == 1) "Aggiunto 1 movimento" else "Aggiunti $n movimenti") + ". Quelli senza scontrino sono in Da completare.")
+            }
+            .setNeutralButton("Già presenti") { _, _ ->
+                AlertDialog.Builder(this).setTitle("Già presenti, non aggiunti").setItems(dups.map { label(it) }.toTypedArray(), null)
+                    .setPositiveButton("Indietro") { _, _ -> statementPreview(rows) }.show()
+            }
             .setNegativeButton("Annulla", null).show()
     }
 

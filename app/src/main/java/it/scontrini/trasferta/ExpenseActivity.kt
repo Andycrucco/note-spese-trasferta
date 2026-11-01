@@ -66,7 +66,13 @@ class ExpenseActivity : AppCompatActivity() {
     private var autoCat: String? = null
     private var userCat = false
 
-    private lateinit var preview: ImageView
+    private lateinit var preview: AmountPicker
+    private lateinit var photoCard: View
+    private lateinit var modeChips: ChipGroup
+    private lateinit var cashChip: Chip
+    /** cosa imposta il tocco su un numero della foto: importo, mancia o mancia in contanti */
+    private var pickMode = "amount"
+    private lateinit var cashPctRow: View
     private lateinit var status: TextView
     private lateinit var dateField: TextView
     private lateinit var time: EditText
@@ -169,15 +175,30 @@ class ExpenseActivity : AppCompatActivity() {
             root.addView(c, lp())
         }
 
-        val top = hbox().apply { gravity = Gravity.CENTER_VERTICAL }
-        preview = ImageView(this).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP; visibility = View.GONE
-            setBackgroundColor(col(R.color.surface_high))
-        }
-        top.addView(preview, LinearLayout.LayoutParams(dp(84), dp(120)).apply { marginEnd = dp(12) })
+        // foto grande con i numeri letti: rosso = importo, giallo = mancia; tocca un numero per correggere
+        val (pc, pin) = card()
+        photoCard = pc; pc.visibility = View.GONE
+        preview = AmountPicker(this).apply { onPick = { v -> picked(v) } }
+        pin.addView(preview, lp(h = dp(380)))
+        val modeRow = hbox().apply { gravity = Gravity.CENTER_VERTICAL }
+        modeRow.addView(txt("Tocca un numero per:", 13f, R.color.ink2), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
+        modeChips = ChipGroup(this).apply { isSingleSelection = true; isSelectionRequired = true }
+        fun modeChip(label: String, mode: String) = Chip(this).apply {
+            text = label; isCheckable = true; isChecked = mode == pickMode
+            setOnClickListener { pickMode = mode }
+        }.also { modeChips.addView(it) }
+        modeChip("Importo", "amount"); modeChip("Mancia", "tip")
+        cashChip = modeChip("Contanti", "cash")
+        modeRow.addView(modeChips, LinearLayout.LayoutParams(0, -2, 1f))
+        pin.addView(modeRow, lp(top = dp(6)))
+        pin.addView(txt("Rosso = importo, giallo = mancia. Due dita per ingrandire.", 12f, R.color.ink2))
+        pin.addView(txt("Cambia foto", 13.5f, R.color.red, true).apply {
+            setPadding(0, dp(8), 0, dp(2))
+            setOnClickListener { AlertDialog.Builder(this@ExpenseActivity).setItems(arrayOf("Scatta di nuovo", "Scegli un'altra foto")) { _, w -> if (w == 0) camera() else gallery() }.show() }
+        })
+        root.addView(pc, lp(top = dp(12)))
         status = txt("", 14f, R.color.ink2)
-        top.addView(status, LinearLayout.LayoutParams(0, -2, 1f))
-        root.addView(top, lp(top = dp(12)))
+        root.addView(status, lp(top = dp(10)))
 
         photoBtns = hbox()
         photoBtns.addView(btn("Scatta foto") { camera() }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) })
@@ -212,8 +233,11 @@ class ExpenseActivity : AppCompatActivity() {
         catInfo = txt("", 12.5f, R.color.ink2)
         root.addView(catInfo, lp(top = dp(4)))
         root.addView(two(field("Importo scontrino", amount), field("Mancia su scontrino", tip)), lp(top = dp(12)))
+        root.addView(pctRow("Mancia non stampata?", tip), lp(top = dp(4)))
         tipCashBox = field("Mancia lasciata in contanti a tavola", tipCash)
         root.addView(tipCashBox, lp(top = dp(12)))
+        cashPctRow = pctRow("In contanti:", tipCash)
+        root.addView(cashPctRow, lp(top = dp(4)))
         tipInfo = txt("", 13f, R.color.ink2)
         root.addView(tipInfo, lp(top = dp(4)))
         root.addView(field("Carta", card), lp(top = dp(12)))
@@ -281,6 +305,7 @@ class ExpenseActivity : AppCompatActivity() {
             recompute()
         } else {
             status.text = "Fotografa lo scontrino o scegli la foto: leggo io data, importo, mancia e carta."
+            if (Store.myCard.isNotEmpty()) card.setText("Carta " + Store.myCard)
         }
         b?.getString("date")?.let { if (it.isNotEmpty()) setDate(it) }
         b?.getString("photo")?.let { File(it) }?.takeIf { it.exists() }?.let { showPhoto(it) }
@@ -386,6 +411,9 @@ class ExpenseActivity : AppCompatActivity() {
         val meal = e.isMeal
         guestBox.visibility = if (meal || e.guests.isNotEmpty()) View.VISIBLE else View.GONE
         tipCashBox.visibility = if (meal) View.VISIBLE else View.GONE
+        cashPctRow.visibility = tipCashBox.visibility
+        cashChip.visibility = tipCashBox.visibility
+        preview.amount = Fmt.num(amount.text.toString()); preview.tip = Fmt.num(tip.text.toString()); preview.cash = Fmt.num(tipCash.text.toString())
         if (e.tipTotal > 0 && e.amount > 0) {
             tipInfo.visibility = View.VISIBLE
             tipInfo.text = "Mancia totale " + Fmt.money(e.tipTotal) + " " + e.currency + " · " +
@@ -457,21 +485,83 @@ class ExpenseActivity : AppCompatActivity() {
 
     private fun showPhoto(f: File, bmp: Bitmap? = null) {
         photo = f
-        preview.setImageBitmap(bmp ?: BitmapFactory.decodeFile(f.absolutePath))
-        preview.visibility = View.VISIBLE
-        preview.setOnClickListener { AlertDialog.Builder(this).setItems(arrayOf("Scatta di nuovo", "Scegli un'altra foto")) { _, w -> if (w == 0) camera() else gallery() }.show() }
+        preview.bitmap = bmp ?: BitmapFactory.decodeFile(f.absolutePath)
+        preview.boxes = emptyList()
+        photoCard.visibility = View.VISIBLE
         refresh()
+    }
+
+    /** Righe con 10% 15% 20% del conto: per la mancia che sullo scontrino non c'è. */
+    private fun pctRow(label: String, target: EditText): View {
+        val row = hbox().apply { gravity = Gravity.CENTER_VERTICAL }
+        row.addView(txt(label, 13f, R.color.ink2), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
+        for (p in listOf(10, 15, 20)) row.addView(Chip(this).apply {
+            text = "$p%"
+            setOnClickListener {
+                val a = Fmt.num(amount.text.toString())
+                if (a == null || a <= 0) { toast("Prima inserisci l'importo dello scontrino."); return@setOnClickListener }
+                target.setText(Fmt.plain(Fmt.round2(a * p / 100.0)))
+            }
+        }, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
+        row.addView(Chip(this).apply { text = "0"; setOnClickListener { target.setText("") } })
+        return row
+    }
+
+    private fun picked(v: Double) {
+        val f = when (pickMode) { "tip" -> tip; "cash" -> tipCash; else -> amount }
+        f.setText(Fmt.plain(v))
+        status.text = (when (pickMode) { "tip" -> "Mancia"; "cash" -> "Mancia in contanti"; else -> "Importo" }) + " preso dalla foto: " + Fmt.money(v) + ". Controlla e salva."
+        status.setTextColor(col(R.color.ink2))
+        if (pickMode != "amount") { pickMode = "amount"; (modeChips.getChildAt(0) as? Chip)?.isChecked = true }
+        refresh()
+    }
+
+    /**
+     * OCR con la foto nel verso giusto: se le righe risultano verticali o non trovo il totale,
+     * provo la foto ruotata e tengo la lettura migliore. Da chiamare fuori dal thread principale.
+     */
+    private fun ocrBest(bmp: Bitmap): Pair<Bitmap, com.google.mlkit.vision.text.Text> {
+        val rec = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        fun run(b: Bitmap) = com.google.android.gms.tasks.Tasks.await(rec.process(InputImage.fromBitmap(b, 0)))
+        val totalRe = Regex("total|totale|importe|propina|mancia", RegexOption.IGNORE_CASE)
+        fun score(t: com.google.mlkit.vision.text.Text): Int {
+            val lines = t.textBlocks.flatMap { it.lines }.filter { it.text.length >= 4 }
+            val upright = lines.count { l -> l.boundingBox?.let { it.width() > it.height() * 1.5 } == true }
+            val chars = lines.sumOf { l -> l.text.count { it.isLetterOrDigit() } }
+            return upright * 4 + chars / 8 + (if (totalRe.containsMatchIn(t.text)) 60 else 0)
+        }
+        fun rotate(b: Bitmap, deg: Float): Bitmap = Bitmap.createBitmap(b, 0, 0, b.width, b.height, android.graphics.Matrix().apply { postRotate(deg) }, true)
+        val t0 = run(bmp)
+        val lines0 = t0.textBlocks.flatMap { it.lines }.filter { it.text.length >= 4 }
+        val vertical = lines0.count { l -> l.boundingBox?.let { it.height() > it.width() } == true }
+        if (lines0.size >= 6 && vertical * 3 < lines0.size && totalRe.containsMatchIn(t0.text)) return bmp to t0
+        var best = bmp to t0; var bs = score(t0)
+        for (deg in listOf(90f, 270f, 180f)) {
+            if (deg == 180f && bs > 120) break
+            val r = try { rotate(bmp, deg) } catch (e: OutOfMemoryError) { continue }
+            val t = try { run(r) } catch (e: Exception) { continue }
+            val sc = score(t)
+            if (sc > bs) { best = r to t; bs = sc }
+        }
+        return best
     }
 
     private fun read(bmp: Bitmap) {
         status.text = "Leggo lo scontrino…"; status.setTextColor(col(R.color.ink))
-        TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-            .process(InputImage.fromBitmap(bmp, 0))
-            .addOnSuccessListener { t -> apply(ReceiptParser.parse(t.text, Store.currency, sms?.amount)) }
-            .addOnFailureListener {
-                status.text = "Non sono riuscito a leggere lo scontrino. Compila i campi a mano."
-                status.setTextColor(col(R.color.warn))
+        Thread {
+            val res = try { ocrBest(bmp) } catch (e: Exception) { null }
+            if (res != null && res.first !== bmp) photo?.let { f -> try { Images.saveJpeg(res.first, f) } catch (_: Exception) {} }
+            runOnUiThread {
+                if (res == null) {
+                    status.text = "Non sono riuscito a leggere lo scontrino. Compila i campi a mano o tocca i numeri sulla foto."
+                    status.setTextColor(col(R.color.warn)); return@runOnUiThread
+                }
+                val (b, t) = res
+                if (b !== bmp) preview.bitmap = b
+                preview.boxes = AmountPicker.boxesFrom(t)
+                apply(ReceiptParser.parse(Ocr.rows(t), Store.currency, sms?.amount))
             }
+        }.start()
     }
 
     private fun apply(r: ReceiptData) {
@@ -482,10 +572,11 @@ class ExpenseActivity : AppCompatActivity() {
         r.amount?.let { amount.setText(Fmt.plain(it)) }
         r.tip?.let { tip.setText(Fmt.plain(it)) }
         if (r.currency.isNotEmpty() && (cur.text.isBlank() || sms == null)) cur.setText(r.currency)
-        if (r.card.isNotEmpty() && (card.text.isBlank() || r.card == "Contanti")) card.setText(r.card)
+        if (r.card.isNotEmpty() && (card.text.isBlank() || r.card == "Contanti" || (Store.myCard.isNotEmpty() && card.text.toString() == "Carta " + Store.myCard && Fmt.last4(r.card) == Store.myCard))) card.setText(r.card)
         val names = mapOf("date" to "data", "place" to "luogo", "amount" to "importo")
         val unsure = r.uncertain.mapNotNull { names[it] }
-        status.text = if (unsure.isEmpty()) "Letto. Controlla i dati e salva." else "Letto. Controlla bene: " + unsure.joinToString(", ") + "."
+        status.text = (if (unsure.isEmpty()) "Letto. Controlla i dati e salva." else "Letto. Controlla bene: " + unsure.joinToString(", ") + ".") +
+            " Se un valore è sbagliato, tocca il numero giusto sulla foto."
         status.setTextColor(col(if (unsure.isEmpty()) R.color.ink2 else R.color.warn))
         recompute()
     }
