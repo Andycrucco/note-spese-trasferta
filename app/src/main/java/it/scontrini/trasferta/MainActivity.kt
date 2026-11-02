@@ -739,7 +739,7 @@ class MainActivity : AppCompatActivity() {
             renderList(list)
             root.addView(cap("Esporta per Ztravel").also { exportAnchor = it }, lp(top = dp(22)))
             root.addView(btn("Crea cartella per Ztravel") { exportFolder(list) }, lp(top = dp(6)))
-            root.addView(txt("Dentro trovi la sottocartella Ztravel: un JPG per spesa sotto i 200 KB (N. Alleg.), il PDF unico per la modalità massiva, il PDF "nessun documento" e le righe con le Mance separate. Gli altri file numerati nell'ordine della banca sono il tuo archivio. Se poi aggiungi un SMS perso, i numeri si riordinano da soli: riesporta e la cartella viene rifatta. Finisce in Download/NoteSpese e puoi inviarla a OneDrive.", 12f, R.color.ink2), lp(top = dp(4)))
+            root.addView(txt("Dentro trovi la sottocartella Ztravel: un JPG per spesa sotto i 200 KB (N. Alleg.), il PDF unico per la modalità massiva, il PDF \"nessun documento\" e le righe con le Mance separate. Gli altri file numerati nell'ordine della banca sono il tuo archivio. Se poi aggiungi un SMS perso, i numeri si riordinano da soli: riesporta e la cartella viene rifatta. Finisce in Download/NoteSpese e puoi inviarla a OneDrive.", 12f, R.color.ink2), lp(top = dp(4)))
             root.addView(btn("Solo CSV di riepilogo", false) { exportCsv(list) }, lp(top = dp(8)))
         }
     }
