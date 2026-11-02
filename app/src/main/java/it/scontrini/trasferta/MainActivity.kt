@@ -739,7 +739,7 @@ class MainActivity : AppCompatActivity() {
             renderList(list)
             root.addView(cap("Esporta per Ztravel").also { exportAnchor = it }, lp(top = dp(22)))
             root.addView(btn("Crea cartella per Ztravel") { exportFolder(list) }, lp(top = dp(6)))
-            root.addView(txt("Ogni scontrino numerato nell'ordine delle transazioni in banca (001_2026-03-22_CENA_…), con foto, PDF e riepilogo CSV. Se poi aggiungi un SMS perso, i numeri si riordinano da soli: riesporta e la cartella viene rifatta. Finisce in Download/NoteSpese e puoi inviarla a OneDrive.", 12f, R.color.ink2), lp(top = dp(4)))
+            root.addView(txt("Dentro trovi la sottocartella Ztravel: un JPG per spesa sotto i 200 KB (N. Alleg.), il PDF unico per la modalità massiva, il PDF "nessun documento" e le righe con le Mance separate. Gli altri file numerati nell'ordine della banca sono il tuo archivio. Se poi aggiungi un SMS perso, i numeri si riordinano da soli: riesporta e la cartella viene rifatta. Finisce in Download/NoteSpese e puoi inviarla a OneDrive.", 12f, R.color.ink2), lp(top = dp(4)))
             root.addView(btn("Solo CSV di riepilogo", false) { exportCsv(list) }, lp(top = dp(8)))
         }
     }
@@ -800,9 +800,15 @@ class MainActivity : AppCompatActivity() {
                 val left = vbox()
                 val title = hbox().apply { gravity = Gravity.CENTER_VERTICAL }
                 nums[e.id]?.let { title.addView(mono(it.toString().padStart(width, '0'), 13f, R.color.red, true), LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) }) }
+                Ztravel.capCheck(e)?.over?.let { over ->
+                    title.addView(View(this).apply {
+                        background = android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(col(if (over) R.color.red else R.color.ok)) }
+                    }, LinearLayout.LayoutParams(dp(9), dp(9)).apply { marginEnd = dp(6) })
+                }
                 title.addView(txt(e.place.ifBlank { "Senza luogo" }, 15f, bold = true), LinearLayout.LayoutParams(0, -2, 1f))
                 left.addView(title)
-                val meta = mutableListOf(e.category + (if (e.time.isNotEmpty()) " " + e.time else ""), e.card.ifBlank { "Senza carta" })
+                val meta = mutableListOf(Ztravel.voce(e) + (if (e.time.isNotEmpty()) " " + e.time else ""), e.card.ifBlank { "Senza carta" } + (if (Ztravel.personal(e)) " (personale)" else ""))
+                Ztravel.capCheck(e)?.takeIf { it.over == true }?.let { meta.add("oltre massimale " + Fmt.money(it.cap) + " " + it.cur) }
                 if (e.tipCash > 0) meta.add("mancia a tavola " + Fmt.money(e.tipCash))
                 if (e.guests.isNotEmpty()) meta.add("con " + e.guests.joinToString(", "))
                 left.addView(txt(meta.joinToString(" · "), 13f, R.color.ink2))
@@ -1061,7 +1067,15 @@ class MainActivity : AppCompatActivity() {
         box.addView(txt("Lascia vuoto per riconoscere da solo gli SMS di addebito. Se ricevi avvisi sbagliati, scrivi il nome del mittente della banca.", 12f, R.color.ink2), lp(top = dp(4)))
         box.addView(loc, lp(top = dp(10)))
         box.addView(txt("La posizione viene confrontata con OpenStreetMap (servizio pubblico Overpass) solo per trovare il locale più vicino.", 12f, R.color.ink2))
-        box.addView(cap("Massimale pasto a persona (facoltativo)"), lp(top = dp(14)))
+        box.addView(cap("Massimali aziendali (vitto e soggiorno, 2015)"), lp(top = dp(14)))
+        val zoneNames = listOf("Automatici (dal paese o dalla valuta)") + Ztravel.ZONES.map { it.name + " · pasto " + Fmt.plain(it.vitto) + " " + it.cur + " · notte " + Fmt.plain(it.soggiorno) + " " + it.cur }
+        val zoneSp = android.widget.Spinner(this).apply {
+            adapter = android.widget.ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, zoneNames)
+            setSelection(Ztravel.ZONES.indexOfFirst { it.name == Store.capZone } + 1)
+        }
+        box.addView(zoneSp, lp(top = dp(4)))
+        box.addView(txt("Pranzo e cena a persona (mancia esclusa) e pernotto a notte, come il Controllo massimali di Ztravel. Il pallino rosso segna le spese oltre il massimale.", 12f, R.color.ink2))
+        box.addView(cap("Altro massimale pasto (facoltativo, sostituisce quello aziendale)"), lp(top = dp(14)))
         val capRow = hbox()
         capRow.addView(capA, LinearLayout.LayoutParams(0, -2, 1.2f).apply { marginEnd = dp(8) })
         capRow.addView(capC, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) })
@@ -1083,6 +1097,7 @@ class MainActivity : AppCompatActivity() {
                 Store.capAmount = Fmt.num(capA.text.toString()) ?: 0.0
                 Store.capCurrency = capC.text.toString().trim().uppercase().take(3)
                 Store.capYear = capY.text.toString().trim().toIntOrNull() ?: 0
+                Store.capZone = Ztravel.ZONES.getOrNull(zoneSp.selectedItemPosition - 1)?.name ?: ""
                 dl.text.toString().trim().let { if (it.startsWith("https://")) Store.downloadUrl = it }
                 Store.save(this); render()
             }.setNegativeButton("Annulla", null).show()

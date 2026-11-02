@@ -73,6 +73,19 @@ class ExpenseActivity : AppCompatActivity() {
     /** cosa imposta il tocco su un numero della foto: importo, mancia o mancia in contanti */
     private var pickMode = "amount"
     private lateinit var cashPctRow: View
+    private lateinit var zvoce: Spinner
+    private lateinit var payS: Spinner
+    private lateinit var nights: EditText
+    private lateinit var nightsBox: View
+    private lateinit var taxiBox: View
+    private lateinit var provider: EditText
+    private lateinit var route: EditText
+    private lateinit var splitBox: android.widget.CheckBox
+    private lateinit var noteIn: EditText
+    private lateinit var capInfo: TextView
+    private var zvoceTouched = false
+    private var payTouched = false
+    private var settingZ = false
     private lateinit var status: TextView
     private lateinit var dateField: TextView
     private lateinit var time: EditText
@@ -241,6 +254,20 @@ class ExpenseActivity : AppCompatActivity() {
         tipInfo = txt("", 13f, R.color.ink2)
         root.addView(tipInfo, lp(top = dp(4)))
         root.addView(field("Carta", card), lp(top = dp(12)))
+        // campi per Ztravel
+        zvoce = Spinner(this).apply { adapter = ArrayAdapter(this@ExpenseActivity, android.R.layout.simple_spinner_dropdown_item, Ztravel.VOCI) }
+        payS = Spinner(this).apply { adapter = ArrayAdapter(this@ExpenseActivity, android.R.layout.simple_spinner_dropdown_item, listOf("Carta aziendale", "Personale / contanti")) }
+        root.addView(two(field("Voce Ztravel", zvoce), field("Pagamento", payS)), lp(top = dp(12)))
+        nights = input("1", InputType.TYPE_CLASS_NUMBER)
+        nightsBox = field("Notti", nights)
+        root.addView(nightsBox, lp(top = dp(12)))
+        provider = input("Nome del tassista o della compagnia")
+        route = input("Percorso, es. Hotel → Brembo Escobedo")
+        taxiBox = vbox().apply {
+            addView(cap("Taxi: prestatore e percorso (obbligatori, Uber escluso)"))
+            addView(provider, lp(top = dp(4))); addView(route, lp(top = dp(6)))
+        }
+        root.addView(taxiBox, lp(top = dp(12)))
 
         tableBtn = btn("Sono a tavola: mostra il mio QR", false) { Tavolo.showMine(this) { toggleTable(true) } }
         val addBtn = btn("Aggiungi commensale (QR o NFC)", false) { Tavolo.addFrom(this) { n -> addGuest(n) } }
@@ -248,12 +275,27 @@ class ExpenseActivity : AppCompatActivity() {
             addView(cap("Commensali (con chi eri a tavola)"))
             addView(guests, lp())
             addView(chips, lp(top = dp(4)))
+            splitBox = android.widget.CheckBox(this@ExpenseActivity).apply {
+                text = "Conto diviso: in Ztravel metto solo la mia quota"; setTextColor(col(R.color.ink))
+                setOnCheckedChangeListener { _, _ -> refresh() }
+            }
+            addView(splitBox, lp(top = dp(4)))
             addView(addBtn, lp(top = dp(6)))
             addView(tableBtn, lp(top = dp(6)))
             addView(txt("Tre modi, solo tra colleghi con l'app: inquadri il loro QR, avvicini i telefoni (NFC) o li trovi via Bluetooth con \"Sono a tavola\" (10 minuti). Nessun server.", 11.5f, R.color.ink2), lp(top = dp(4)))
         }
         root.addView(guestBox, lp(top = dp(12)))
 
+        noteIn = input("Facoltativa: compare nel CSV e nel PDF", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES).apply { setSingleLine(false); maxLines = 4 }
+        root.addView(field("Note per Ztravel", noteIn), lp(top = dp(12)))
+        capInfo = txt("", 13f, R.color.ink2).apply {
+            visibility = View.GONE
+            setOnClickListener {
+                val n = Ztravel.capNote(current(false))
+                if (n.isNotEmpty() && !noteIn.text.contains(n)) noteIn.setText((noteIn.text.toString() + " " + n).trim())
+            }
+        }
+        root.addView(capInfo, lp(top = dp(4)))
         smsInfo = txt("", 13.5f, R.color.ink2).apply { visibility = View.GONE }
         root.addView(smsInfo, lp(top = dp(12)))
 
@@ -266,7 +308,15 @@ class ExpenseActivity : AppCompatActivity() {
         root.addView(pdfBtn, lp(top = dp(18)))
         root.addView(saveBtn, lp(top = dp(8)))
 
-        listOf(place, amount, tip, tipCash, cur, card).forEach { it.doAfterTextChanged { dupAck = false; refresh() } }
+        listOf(place, amount, tip, tipCash, cur, card, nights, provider, route, noteIn).forEach { it.doAfterTextChanged { dupAck = false; refresh() } }
+        zvoce.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) { if (!settingZ) zvoceTouched = true; refresh() }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+        payS.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) { if (!settingZ) payTouched = true; refresh() }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
         time.doAfterTextChanged { if (!userCat) recompute() else refresh() }
         guests.doAfterTextChanged { renderChips(); refresh() }
         cat.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -293,6 +343,12 @@ class ExpenseActivity : AppCompatActivity() {
             lat = e.lat; lon = e.lon; country = e.country; poi = e.poi; catReason = e.catReason
             catInfo.text = if (e.catReason.isNotEmpty()) "Categoria da: " + e.catReason else ""
             e.photo?.let { File(it) }?.takeIf { it.exists() }?.let { showPhoto(it) }
+            settingZ = true
+            if (e.zvoce in Ztravel.VOCI) { zvoce.setSelection(Ztravel.VOCI.indexOf(e.zvoce)); zvoceTouched = true }
+            if (e.pay.isNotEmpty()) { payS.setSelection(if (e.pay == "pers") 1 else 0); payTouched = true }
+            settingZ = false
+            if (e.nights > 1) nights.setText(e.nights.toString())
+            provider.setText(e.provider); route.setText(e.route); noteIn.setText(e.note); splitBox.isChecked = e.split
             status.text = "Modifica i dati e salva."
         } else if (s != null) {
             if (s.date.isNotEmpty()) setDate(s.date)
@@ -398,7 +454,13 @@ class ExpenseActivity : AppCompatActivity() {
             time = Fmt.time(time.text.toString()), tipCash = if (category in MEALS) Fmt.round2(tc) else 0.0,
             lat = lat, lon = lon, country = country, poi = poi,
             catReason = if (userCat) "scelta manuale" else catReason,
-            eurRate = e?.eurRate, eurDate = e?.eurDate ?: "", declaration = declaration
+            eurRate = e?.eurRate, eurDate = e?.eurDate ?: "", declaration = declaration,
+            updated = e?.updated ?: 0L,
+            zvoce = if (zvoceTouched) Ztravel.VOCI.getOrElse(zvoce.selectedItemPosition) { "" } else "",
+            pay = if (payTouched) (if (payS.selectedItemPosition == 1) "pers" else "az") else "",
+            nights = nights.text.toString().toIntOrNull()?.coerceIn(1, 60) ?: 1,
+            split = splitBox.isChecked, provider = provider.text.toString().trim(), route = route.text.toString().trim(),
+            note = noteIn.text.toString().trim()
         )
         if (e != null && (e.date != x.date || e.currency != x.currency)) { x.eurRate = null; x.eurDate = "" }
         if (withPdf) x.pdf = x.pdfName()
@@ -410,6 +472,28 @@ class ExpenseActivity : AppCompatActivity() {
         fname.text = e.pdfName()
         val meal = e.isMeal
         guestBox.visibility = if (meal || e.guests.isNotEmpty()) View.VISIBLE else View.GONE
+        // Ztravel: voce e pagamento automatici finché non li scegli tu
+        settingZ = true
+        if (!zvoceTouched) zvoce.setSelection(Ztravel.VOCI.indexOf(Ztravel.defaultVoce(e.category)).coerceAtLeast(0))
+        if (!payTouched) payS.setSelection(if (Ztravel.personal(e)) 1 else 0)
+        settingZ = false
+        val v = Ztravel.voce(e)
+        nightsBox.visibility = if (Ztravel.isPernotto(v)) View.VISIBLE else View.GONE
+        taxiBox.visibility = if (v == "Taxi") View.VISIBLE else View.GONE
+        splitBox.visibility = if (meal && e.guests.isNotEmpty()) View.VISIBLE else View.GONE
+        val cc = Ztravel.capCheck(e)
+        if (cc?.over != null && e.amount > 0) {
+            capInfo.visibility = View.VISIBLE
+            capInfo.text = (if (cc.over == true) "● Oltre il massimale " else "● Entro il massimale ") + (if (cc.kind == "vitto") "pasto " else "pernotto ") +
+                Fmt.money(cc.cap) + " " + cc.cur + " (" + cc.zone + "): " + Fmt.money(cc.value) + " " + cc.cur + (if (cc.kind == "vitto") " a persona." else " a notte.") +
+                (if (cc.over == true) "  Tocca qui per aggiungere la nota per Ztravel." else "") +
+                (if (e.split && e.people > 1) "  In Ztravel: " + Ztravel.lines(e).joinToString(" + ") { it.voce + " " + Fmt.money(it.amount) } + " " + e.currency + "." else "")
+            capInfo.setTextColor(col(if (cc.over == true) R.color.warn else R.color.ok))
+        } else if (e.split && e.people > 1 && e.amount > 0) {
+            capInfo.visibility = View.VISIBLE
+            capInfo.text = "In Ztravel: " + Ztravel.lines(e).joinToString(" + ") { it.voce + " " + Fmt.money(it.amount) } + " " + e.currency + "."
+            capInfo.setTextColor(col(R.color.ink2))
+        } else capInfo.visibility = View.GONE
         tipCashBox.visibility = if (meal) View.VISIBLE else View.GONE
         cashPctRow.visibility = tipCashBox.visibility
         cashChip.visibility = tipCashBox.visibility

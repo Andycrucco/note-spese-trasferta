@@ -19,6 +19,8 @@ object Store {
     var myEmail = ""
     /** ultime 4 cifre della carta aziendale: gli SMS e i movimenti di altre carte vengono ignorati */
     var myCard = ""
+    /** zona dei massimali aziendali ("" = automatica dal paese o dalla valuta) */
+    var capZone = ""
     /** repository condiviso (GitHub privato "proprietario/nome") e chiave di accesso */
     var repo = ""
     var repoToken = ""
@@ -72,6 +74,7 @@ object Store {
                 myName = o.optString("myName", "")
                 myEmail = o.optString("myEmail", "")
                 myCard = o.optString("myCard", "")
+                capZone = o.optString("capZone", "")
                 repo = o.optString("repo", ""); repoToken = o.optString("repoToken", "")
                 lastSync = o.optLong("lastSync", 0L); syncMsg = o.optString("syncMsg", "")
                 o.optJSONObject("syncSha")?.let { t -> t.keys().forEach { k -> syncSha[k] = t.optString(k) } }
@@ -101,7 +104,7 @@ object Store {
         o.put("expenses", JSONArray().apply { expenses.forEach { put(expTo(it)) } })
         o.put("sms", JSONArray().apply { sms.forEach { put(smsTo(it)) } })
         o.put("trip", trip); o.put("currency", currency); o.put("senders", senders)
-        o.put("myName", myName); o.put("myEmail", myEmail); o.put("myCard", myCard); o.put("lockEnabled", lockEnabled); o.put("useLocation", useLocation)
+        o.put("myName", myName); o.put("myEmail", myEmail); o.put("myCard", myCard); o.put("capZone", capZone); o.put("lockEnabled", lockEnabled); o.put("useLocation", useLocation)
         o.put("capAmount", capAmount); o.put("capCurrency", capCurrency); o.put("capYear", capYear)
         o.put("downloadUrl", downloadUrl)
         o.put("repo", repo); o.put("repoToken", repoToken); o.put("lastSync", lastSync); o.put("syncMsg", syncMsg)
@@ -179,6 +182,8 @@ object Store {
         put("country", e.country); put("poi", e.poi); put("catReason", e.catReason)
         put("eurRate", e.eurRate ?: JSONObject.NULL); put("eurDate", e.eurDate); put("declaration", e.declaration)
         put("updated", e.updated)
+        put("zvoce", e.zvoce); put("pay", e.pay); put("nights", e.nights); put("split", e.split)
+        put("provider", e.provider); put("route", e.route); put("note", e.note)
     }
 
     private fun expFrom(o: JSONObject) = Expense(
@@ -191,7 +196,9 @@ object Store {
         lat = if (o.isNull("lat")) null else o.optDouble("lat"), lon = if (o.isNull("lon")) null else o.optDouble("lon"),
         country = o.optString("country"), poi = o.optString("poi"), catReason = o.optString("catReason"),
         eurRate = if (o.isNull("eurRate")) null else o.optDouble("eurRate"), eurDate = o.optString("eurDate"),
-        declaration = o.optBoolean("declaration", false), updated = o.optLong("updated", 0L)
+        declaration = o.optBoolean("declaration", false), updated = o.optLong("updated", 0L),
+        zvoce = o.optString("zvoce"), pay = o.optString("pay"), nights = o.optInt("nights", 1).coerceAtLeast(1),
+        split = o.optBoolean("split", false), provider = o.optString("provider"), route = o.optString("route"), note = o.optString("note")
     )
 
     private fun smsTo(s: SmsCharge) = JSONObject().apply {

@@ -32,7 +32,19 @@ data class Expense(
     /** scontrino non disponibile: il PDF è una dichiarazione sostitutiva */
     var declaration: Boolean = false,
     /** ultima modifica: decide chi vince se la stessa spesa cambia su due telefoni */
-    var updated: Long = 0L
+    var updated: Long = 0L,
+    /** voce di spesa Ztravel scelta a mano ("" = automatica dalla categoria) */
+    var zvoce: String = "",
+    /** "az" carta aziendale, "pers" personale/contanti, "" automatico */
+    var pay: String = "",
+    var nights: Int = 1,
+    /** conto diviso con i commensali: in Ztravel va solo la mia quota */
+    var split: Boolean = false,
+    /** taxi: prestatore e percorso (regola fiscale) */
+    var provider: String = "",
+    var route: String = "",
+    /** note per Ztravel */
+    var note: String = ""
 ) {
     val totalEur: Double? get() = eurRate?.let { Fmt.round2(total * it) }
     /** quanto addebitato sulla carta: è quello che si confronta con l'SMS */

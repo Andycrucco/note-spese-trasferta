@@ -122,9 +122,9 @@ object PdfMaker {
         val cu = " " + e.currency
         val rows = mutableListOf(
             "DATA" to (Fmt.dmy(e.date).ifEmpty { "-" } + if (e.time.isNotEmpty()) "  " + e.time else ""),
-            "CATEGORIA" to e.category,
+            "VOCE ZTRAVEL" to Ztravel.voce(e),
             "IMPORTO SCONTRINO" to Fmt.money(e.amount) + cu,
-            "CARTA" to e.card.ifBlank { "-" }
+            "CARTA" to e.card.ifBlank { "-" } + (if (Ztravel.personal(e)) " (personale)" else "")
         )
         if (e.tip > 0) rows.add("MANCIA SU SCONTRINO / CARTA" to Fmt.money(e.tip) + cu)
         if (e.tipCash > 0) rows.add("MANCIA IN CONTANTI A TAVOLA" to Fmt.money(e.tipCash) + cu)
@@ -136,6 +136,10 @@ object PdfMaker {
         if (e.currency != "EUR") e.totalEur?.let { rows.add("CONTROVALORE IN EURO" to Fmt.money(it) + " EUR (BCE " + Fmt.dmy(e.eurDate) + ")") }
         if (e.people > 1) rows.add("TOTALE A PERSONA" to Fmt.money(e.total / e.people) + cu)
         rows.add("TRASFERTA" to e.trip.ifBlank { "-" })
+        if (e.split && e.people > 1) rows.add("IN ZTRAVEL (MIA QUOTA)" to Ztravel.lines(e).joinToString(" + ") { it.voce + " " + Fmt.money(it.amount) } + cu)
+        if (Ztravel.isPernotto(Ztravel.voce(e)) && e.nights > 1) rows.add("NOTTI" to e.nights.toString())
+        if (Ztravel.voce(e) == "Taxi") { rows.add("PRESTATORE" to e.provider.ifBlank { "-" }); rows.add("PERCORSO" to e.route.ifBlank { "-" }) }
+        Ztravel.capCheck(e)?.takeIf { it.over != null }?.let { cc -> rows.add("MASSIMALE " + cc.zone.uppercase().take(24) to (if (cc.over == true) "OLTRE: " else "entro: ") + Fmt.money(cc.value) + " / " + Fmt.money(cc.cap) + " " + cc.cur) }
         if (e.poi.isNotEmpty() || e.country.isNotEmpty()) rows.add("LUOGO DELLA FOTO" to listOf(e.poi, e.country).filter { it.isNotEmpty() }.joinToString(" · "))
         val colW = cw / 2
         rows.forEachIndexed { i, (k, v) ->
@@ -144,6 +148,11 @@ object PdfMaker {
             c.drawText(wrap(v, value, colW - 10f, 1).firstOrNull() ?: v, x, yy + 14f, value)
         }
         y += ((rows.size + 1) / 2) * 30f + 4f
+        if (e.note.isNotEmpty()) {
+            c.drawText("NOTE", M, y, label); y += 14f
+            for (l in wrap(e.note, value, cw, 3)) { c.drawText(l, M, y, value); y += 14f }
+            y += 4f
+        }
         if (e.guests.isNotEmpty()) {
             c.drawText("COMMENSALI (" + e.people + " PERSONE, ME COMPRESO)", M, y, label)
             y += 14f
@@ -218,12 +227,15 @@ object PdfMaker {
             }
         }
         if (yearSpent > last.year) lines.add(("La spesa è del $yearSpent: la Banca Mondiale non ha ancora pubblicato il dato di quell'anno.") to false)
-        val capOk = Store.capAmount > 0 && Store.capYear > 0 && Store.capCurrency.equals(e.currency, true)
-        if (capOk) {
-            CpiMath.revalue(Store.capAmount, Store.capYear, cpi.points)?.let { (cap, yr) ->
-                val perHead = e.total / e.people
+        val zone = Ztravel.zoneFor(e)
+        val manual = Store.capAmount > 0 && Store.capYear > 0 && Store.capCurrency.equals(e.currency, true)
+        val capBase = if (manual) Store.capAmount else zone?.takeIf { it.cur.equals(e.currency, true) }?.vitto ?: 0.0
+        val capYear = if (manual) Store.capYear else Ztravel.CAP_YEAR
+        if (capBase > 0) {
+            CpiMath.revalue(capBase, capYear, cpi.points)?.let { (cap, yr) ->
+                val perHead = e.amount / e.people
                 val within = perHead <= cap + 0.005
-                lines.add(("Massimale pasto: " + Fmt.money(Store.capAmount) + " " + e.currency + " (" + Store.capYear + "), rivalutato al $yr: " + Fmt.money(cap) + " " + e.currency + " a persona.") to true)
+                lines.add(("Massimale pasto: " + Fmt.money(capBase) + " " + e.currency + " (" + capYear + (if (!manual && zone != null) ", " + zone.name else "") + "), rivalutato al $yr: " + Fmt.money(cap) + " " + e.currency + " a persona.") to true)
                 lines.add(("Questo pasto: " + Fmt.money(perHead) + " " + e.currency + " a persona (" + e.people + " persone) → " + (if (within) "entro il massimale." else "oltre il massimale di " + Fmt.money(perHead - cap) + ".")) to true)
             }
         }
@@ -374,6 +386,49 @@ object Exporter {
                 }
                 files[e.id] = (if (pdf != null) "$base.pdf" else "") to jpgName
             }
+            // ---- per Ztravel: allegati singoli <= 180 KB, PDF unico per la modalità massiva, PDF "nessun documento", righe con le Mance ----
+            val massiva = TinyPdf(); var pages = 0
+            items.forEachIndexed { i, e ->
+                val ph = e.photo?.let { File(it) }?.takeIf { it.exists() } ?: return@forEachIndexed
+                val bmp = try { android.graphics.BitmapFactory.decodeFile(ph.absolutePath) } catch (_: Exception) { null } ?: return@forEachIndexed
+                val jpg = try { Ztravel.scanJpeg(bmp) } catch (_: Exception) { null }
+                bmp.recycle()
+                if (jpg == null) return@forEachIndexed
+                val name = Ztravel.jpgName(i + 1, e)
+                z.putNextEntry(ZipEntry("$dirName/Ztravel/Allegati_singoli/$name")); z.write(jpg.first); z.closeEntry()
+                val tf = File(exportDir(ctx), name).apply { writeBytes(jpg.first) }
+                ok = toDownloads(ctx, tf, "image/jpeg", "$rel/Ztravel/Allegati_singoli", name) && ok
+                tf.delete()
+                val head = "N. Alleg. ${i + 1}  -  " + Fmt.dmy(e.date) + "  -  " + Ztravel.lines(e).joinToString(" + ") { it.voce + " " + Fmt.money(it.amount) } + " " + e.currency
+                val sc = minOf(527f / jpg.second, 770f / jpg.third)
+                val iw = jpg.second * sc; val ih = jpg.third * sc
+                massiva.page(listOf(Triple(34f, 30f, Pair(11f, head))), jpg, floatArrayOf(34f + (527f - iw) / 2, 44f, iw, ih))
+                pages++
+            }
+            fun addFile(f: File, sub: String, mime: String) {
+                z.putNextEntry(ZipEntry("$dirName/$sub/${f.name}")); f.inputStream().use { it.copyTo(z) }; z.closeEntry()
+                ok = toDownloads(ctx, f, mime, "$rel/$sub", f.name) && ok
+            }
+            if (pages > 0) {
+                val mf = File(exportDir(ctx), "Giustificativi_modalita_massiva.pdf"); massiva.write(mf); addFile(mf, "Ztravel", "application/pdf")
+            }
+            val nd = File(exportDir(ctx), "Allegati_NESSUN_DOCUMENTO_DA_ALLEGARE.pdf")
+            TinyPdf().apply {
+                page(listOf(Triple(110f, 400f, Pair(26f, "NESSUN DOCUMENTO DA ALLEGARE")), Triple(110f, 440f, Pair(12f, "Nota spese: $tripLabel"))))
+            }.write(nd)
+            addFile(nd, "Ztravel", "application/pdf")
+            val rf = File(exportDir(ctx), "Righe_nota_spese.csv").apply { writeText(Ztravel.linesCsv(items), Charsets.UTF_8) }
+            addFile(rf, "Ztravel", "text/csv")
+            val lf = File(exportDir(ctx), "LEGGIMI.txt").apply {
+                writeText("Caricamento in Ztravel (Spese viaggiatore)\r\n\r\n" +
+                    "Modalita singola: per ogni riga carica il JPG di Allegati_singoli con lo stesso numero (N. Alleg.). Ogni file e una sola pagina sotto i 200 KB.\r\n" +
+                    "Modalita massiva: carica solo Giustificativi_modalita_massiva.pdf sulla prima spesa. Scegli una sola delle due modalita.\r\n" +
+                    "Sezione Allegati: se non hai altri documenti carica Allegati_NESSUN_DOCUMENTO_DA_ALLEGARE.pdf.\r\n" +
+                    "Le Mance vanno in una riga separata con lo stesso numero di allegato (vedi Righe_nota_spese.csv).\r\n" +
+                    "Taxi: giustificativo con data, prestatore, percorso e importo (Uber escluso). Pernotto: fattura intestata al dipendente.\r\n" +
+                    "I PDF numerati 001_... sono il tuo archivio completo (con la pagina sull'inflazione per i pasti): non caricarli in Ztravel.\r\n")
+            }
+            addFile(lf, "Ztravel", "text/plain")
             val csvF = File(exportDir(ctx), "Riepilogo_Ztravel.csv")
             csvF.writeText(csv(items, files), Charsets.UTF_8)
             z.putNextEntry(ZipEntry("$dirName/Riepilogo_Ztravel.csv")); csvF.inputStream().use { it.copyTo(z) }; z.closeEntry()
@@ -404,8 +459,9 @@ object Exporter {
     fun clearDownloads(ctx: Context, relPath: String) {
         if (Build.VERSION.SDK_INT < 29) return
         try {
+            val r = relPath.trimEnd('/') + "/"
             ctx.contentResolver.delete(MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                MediaStore.Downloads.RELATIVE_PATH + "=?", arrayOf(relPath.trimEnd('/') + "/"))
+                MediaStore.Downloads.RELATIVE_PATH + "=? OR " + MediaStore.Downloads.RELATIVE_PATH + " LIKE ?", arrayOf(r, "$r%"))
         } catch (_: Exception) {}
     }
 
