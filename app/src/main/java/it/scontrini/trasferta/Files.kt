@@ -240,13 +240,13 @@ object PdfMaker {
         val lastAll = pts.last()
         val yearSpent = e.date.take(4).toIntOrNull() ?: last.year
 
-        // riga dell'area locale (es. Monterrey) sulla stessa base, se la spesa è lì
+        // dati dell'area locale (es. Monterrey) per il testo e il massimale: il grafico resta solo nazionale
         val area = LocalContext.areaFor(e)
         val ser = area?.series?.takeIf { area.country.equals(iso, true) }
         val sec = ser?.let { s -> pts.map { p -> s.ratio(p.year)?.let { CpiPoint(p.year, p.value * it, p.est) } } }?.takeIf { l -> l.all { it != null } }?.filterNotNull()
         // grafico a linea dell'indice: dato ufficiale pieno, stima FMI tratteggiata
-        y = lineChart(c, pts, M, y + 6f, cw, if (area != null) 150f else 170f, sec, cpi.name, ser?.short ?: "") + 14f
-        legend(c, M, y, estYears.isNotEmpty(), if (sec != null) ser?.name else null); y += 16f
+        y = lineChart(c, pts, M, y + 6f, cw, if (area != null) 150f else 170f) + 14f
+        legend(c, M, y, estYears.isNotEmpty()); y += 16f
         // inflazione annua
         val yy = CpiMath.yoy(pts)
         c.drawText("INFLAZIONE ANNUA (%)", M, y, paint(8f, false, INK2).apply { letterSpacing = 0.08f })
@@ -293,7 +293,7 @@ object PdfMaker {
         c.drawText("Fonte: data.worldbank.org/indicator/FP.CPI.TOTL · " + upd + "scaricato il " + Fmt.isoOf(cpi.fetchedAt), M, y, small)
         y += 11f
         if (estYears.isNotEmpty()) { c.drawText("Stime: FMI, World Economic Outlook (imf.org/external/datamapper, PCPIPCH)", M, y, small); y += 11f }
-        if (sec != null && ser != null) { c.drawText("Monterrey: INEGI, INPC per città e nazionale (dicembre di ogni anno, ultimo " + ser.last + "), riportati sulla base Banca Mondiale 2010 = 100", M, y, small); y += 11f }
+        if (sec != null && ser != null) { c.drawText("Monterrey: INEGI, INPC per città e nazionale (dicembre di ogni anno, ultimo " + ser.last + ")", M, y, small); y += 11f }
         area?.let { a -> localPanel(c, a, M, y + 8f, cw) }
     }
 
