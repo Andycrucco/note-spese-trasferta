@@ -1,0 +1,32 @@
+Scontrini Trasferta collects your business-trip receipts and prepares the expense report to send, with no account and no server: your data stays on your phone. The app is in Italian.
+
+JUST TAKE A PHOTO
+• Snap the receipt: the app reads the amount, the tip and the time, even from a tilted photo.
+• Tap the right number directly on the photo if the reading picked the wrong one.
+• 10, 15 or 20% tip in one tap, even when the receipt doesn't show it.
+• Location tells restaurant, hotel or gas station apart and suggests the category.
+
+NO CHARGE FORGOTTEN
+• Card charges wait in "Da completare" until they have a receipt: from shared bank SMS, from an automation such as MacroDroid or from the bank statement (CSV, Excel or PDF), without duplicates.
+• Evening reminder for charges still without a photo.
+• Lost receipt? Create the substitute declaration as a PDF.
+
+ALLOWANCES AND INFLATION
+• Meal and hotel allowance check by country, with the bill split among diners.
+• Every meal and hotel PDF includes a page with the country's inflation: official World Bank data, IMF forecast estimate and the allowance revalued to the year of the expense.
+• ECB exchange rate of each expense's date and total in euro.
+
+READY TO SEND
+• Pre-submission check: expenses without photo, taxis without route, charges without receipt.
+• One PDF per expense under 600 KB, a single PDF for bulk upload, expense lines with separate tips and a CSV summary, numbered in bank-transaction order.
+• Everything in a ZIP folder to send to OneDrive or by email.
+
+FOR TEAMS ON THE ROAD
+• "Sono a tavola": colleagues join as diners via QR code, NFC or Bluetooth.
+• History split by trip, with dates and totals per currency.
+• Optional shared repository to use the app on several phones, plus file backup.
+
+PRIVACY
+No ads, no tracking, no account. Data is encrypted on the phone and the app can be locked with fingerprint or PIN. It leaves the phone only when you share it.
+
+The allowance zone and the meal allowance can be set in Settings to match your company policy. The app is not affiliated with any company or expense-management software.

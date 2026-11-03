@@ -1,0 +1,32 @@
+Scontrini Trasferta raccoglie gli scontrini delle trasferte di lavoro e prepara la nota spese da inviare, senza account e senza server: i dati restano sul tuo telefono.
+
+FOTOGRAFA E BASTA
+• Scatti la foto dello scontrino: l'app legge l'importo, la mancia e l'ora, anche se la foto è storta.
+• Tocchi il numero giusto direttamente sulla foto se la lettura ha scelto quello sbagliato.
+• Mancia al 10, 15 o 20% con un tocco, anche quando sullo scontrino non c'è.
+• Dalla posizione capisce se sei al ristorante, in albergo o al distributore e propone la categoria.
+
+NESSUN ADDEBITO DIMENTICATO
+• Gli addebiti con carta arrivano in "Da completare" finché non hanno il loro scontrino: dalla condivisione degli SMS della banca, da un'automazione come MacroDroid o dall'estratto conto (CSV, Excel o PDF), senza doppioni.
+• Promemoria serale per gli addebiti ancora senza foto.
+• Scontrino perso? Prepari la dichiarazione sostitutiva in PDF.
+
+MASSIMALI E INFLAZIONE
+• Controllo dei massimali di vitto e alloggio per paese, con il conto diviso per i commensali.
+• Ogni pasto e pernotto ha nel PDF una pagina con l'inflazione del paese: dato ufficiale della Banca Mondiale, stima con le previsioni del Fondo Monetario Internazionale e massimale rivalutato all'anno della spesa.
+• Cambio BCE del giorno di ogni spesa e totale in euro.
+
+PRONTA DA INVIARE
+• Controllo prima dell'invio: spese senza foto, taxi senza percorso, addebiti senza scontrino.
+• Un PDF per spesa sotto i 600 KB, il PDF unico per il caricamento massivo, le righe con le mance separate e un CSV di riepilogo, numerati nell'ordine delle transazioni della banca.
+• Tutto in una cartella ZIP da mandare a OneDrive o via email.
+
+PER CHI VIAGGIA IN GRUPPO
+• "Sono a tavola": i colleghi si aggiungono come commensali con un QR, l'NFC o il Bluetooth.
+• Storico diviso per trasferta, con date e totali per valuta.
+• Repository condiviso facoltativo per usare l'app su più telefoni, e backup su file.
+
+PRIVACY
+Nessuna pubblicità, nessun tracciamento, nessun account. I dati sono cifrati sul telefono e puoi bloccare l'app con impronta o PIN. Escono solo quando li condividi tu.
+
+La zona dei massimali e il massimale dei pasti si possono impostare in Impostazioni secondo la politica della tua azienda. L'app non è affiliata ad alcuna azienda o gestionale di note spese.

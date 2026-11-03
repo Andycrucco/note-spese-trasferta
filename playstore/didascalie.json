@@ -1,0 +1,22 @@
+{
+ "it": [
+  {"file": "01_home.png", "title": "Fotografa lo <b>scontrino</b>", "sub": "Importo, mancia e ora letti dalla foto, categoria dalla posizione."},
+  {"file": "02_da_completare.png", "title": "Nessun <b>addebito</b> dimenticato", "sub": "SMS della banca ed estratto conto restano in Da completare finché non hanno lo scontrino."},
+  {"file": "06_spesa.png", "title": "Correggi con <b>un tocco</b>", "sub": "Tocchi il numero giusto sulla foto. Mancia al 10, 15 o 20%."},
+  {"file": "03_totali.png", "title": "Totali e <b>cambio BCE</b>", "sub": "Per valuta, carta e categoria, con il controvalore in euro."},
+  {"file": "05_controllo.png", "title": "Controllo prima <b>dell'invio</b>", "sub": "Spese senza foto, taxi senza percorso, addebiti senza scontrino."},
+  {"file": "pdf_inflazione.png", "title": "Massimali e <b>inflazione</b>", "sub": "Nel PDF di ogni pasto: dato ufficiale, stima FMI e massimale rivalutato.", "w": 900},
+  {"file": "08_tavolo.png", "title": "Sono <b>a tavola</b>", "sub": "I colleghi diventano commensali con QR, NFC o Bluetooth."},
+  {"file": "07_menu.png", "title": "Tutto nel <b>menu</b>", "sub": "Storico per trasferta, estratto conto, backup e più telefoni."}
+ ],
+ "en": [
+  {"file": "01_home.png", "title": "Snap the <b>receipt</b>", "sub": "Amount, tip and time read from the photo, category from your location."},
+  {"file": "02_da_completare.png", "title": "No <b>charge</b> forgotten", "sub": "Bank SMS and statements wait in Da completare until they have a receipt."},
+  {"file": "06_spesa.png", "title": "Fix it with <b>one tap</b>", "sub": "Tap the right number on the photo. 10, 15 or 20% tip."},
+  {"file": "03_totali.png", "title": "Totals and <b>ECB rates</b>", "sub": "By currency, card and category, with the euro equivalent."},
+  {"file": "05_controllo.png", "title": "Check before <b>sending</b>", "sub": "Expenses without photo, taxis without route, charges without receipt."},
+  {"file": "pdf_inflazione.png", "title": "Allowances and <b>inflation</b>", "sub": "In every meal PDF: official data, IMF estimate and revalued allowance.", "w": 900},
+  {"file": "08_tavolo.png", "title": "<b>At the table</b>", "sub": "Colleagues join as diners via QR code, NFC or Bluetooth."},
+  {"file": "07_menu.png", "title": "All in the <b>menu</b>", "sub": "Trip history, bank statements, backup and multiple phones."}
+ ]
+}
