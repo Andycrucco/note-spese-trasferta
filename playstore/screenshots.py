@@ -86,7 +86,7 @@ sh('push', os.path.join(HERE, 'demo'), '/data/local/tmp/demo')
 now = int(time.time() * 1000)
 prefs = {
     'app.xml': '<map><boolean name="consent" value="true" /></map>',
-    'ui.xml': '<map><boolean name="cardAsked" value="true" /><long name="lastBackup" value="%d" /></map>' % now,
+    'ui.xml': '<map><boolean name="cardAsked" value="true" /><boolean name="intro" value="false" /><long name="lastBackup" value="%d" /></map>' % now,
     'updates.xml': '<map><long name="checked" value="%d" /><int name="latest" value="0" /></map>' % now,
 }
 for k, v in prefs.items():
@@ -145,6 +145,8 @@ for root, _, fs in os.walk(os.path.join(OUT, 'download')):
 if tap_text('Apri il menu', desc=True) and tap_text('Backup su file') and tap_text('Ripristina'):
     time.sleep(3); shot('t_ripristino_scegli')
     if tap_text('NoteSpese_backup'): time.sleep(1.5); shot('t_ripristino_fatto')
+if tap_text('Apri il menu', desc=True) and tap_text('Video di presentazione'):
+    time.sleep(3); shot('t_video'); time.sleep(9); shot('t_video_finito')
 shell('cmd statusbar click-tile it.scontrini.trasferta/.ReceiptTileService'); time.sleep(4); shot('t_riquadro')
 print('app viva dopo le prove:', alive())
 print('crash:', shell('logcat -d -b crash | tail -40'))

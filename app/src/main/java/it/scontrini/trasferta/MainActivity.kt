@@ -35,6 +35,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var root: LinearLayout
     private lateinit var scroll: ScrollView
     private lateinit var drawer: DrawerLayout
+    /** contenitore della schermata: sopra il menu può comparire il video di apertura */
+    private lateinit var frame: android.widget.FrameLayout
     private lateinit var toggle: ActionBarDrawerToggle
     private lateinit var menuPanel: LinearLayout
     private var todoAnchor: View? = null
@@ -81,13 +83,47 @@ class MainActivity : AppCompatActivity() {
             val bars = ins.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
             v.setPadding(0, bars.top, 0, bars.bottom + dp(24)); ins
         }
-        setContentView(drawer)
+        frame = android.widget.FrameLayout(this).apply { addView(drawer, android.widget.FrameLayout.LayoutParams(-1, -1)) }
+        setContentView(frame)
         toggle = ActionBarDrawerToggle(this, drawer, R.string.menu_apri, R.string.menu_chiudi)
         drawer.addDrawerListener(toggle)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         toggle.syncState()
         root.padForSystemBars()
-        if (b == null) { if (Store.consentShown(this)) { shortcut = intent?.action; if (shortcut == null || shortcut == Intent.ACTION_MAIN) askPermissions() } else disclosure() }
+        if (b == null) {
+            val fromLauncher = intent?.action == null || intent?.action == Intent.ACTION_MAIN
+            val start = { if (Store.consentShown(this)) { shortcut = intent?.action; if (fromLauncher) askPermissions() } else disclosure() }
+            if (fromLauncher && introOn() && !Store.lockEnabled) showIntro(start) else start()
+        }
+    }
+
+    // ---------- video di apertura ----------
+    private fun introOn() = getSharedPreferences("ui", MODE_PRIVATE).getBoolean("intro", true)
+
+    /** Video di apertura (10 secondi, senza audio): si salta con un tocco, poi l'app continua. */
+    private fun showIntro(then: () -> Unit) {
+        var done = false
+        val overlay = android.widget.FrameLayout(this).apply { setBackgroundColor(android.graphics.Color.BLACK); isClickable = true; isFocusable = true }
+        val video = android.widget.VideoView(this)
+        fun end() {
+            if (done) return
+            done = true
+            try { video.stopPlayback() } catch (_: Exception) {}
+            overlay.animate().alpha(0f).setDuration(250).withEndAction { frame.removeView(overlay); then() }.start()
+        }
+        overlay.addView(video, android.widget.FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
+        overlay.addView(txt("Scontrini Trasferta", 22f, R.color.ink, true).apply { gravity = Gravity.CENTER },
+            android.widget.FrameLayout.LayoutParams(-1, -2, Gravity.TOP).apply { topMargin = dp(96) })
+        overlay.addView(txt("Tocca per saltare", 13f, R.color.ink2).apply { gravity = Gravity.CENTER },
+            android.widget.FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { bottomMargin = dp(64) })
+        overlay.setOnClickListener { end() }
+        video.setOnClickListener { end() }
+        video.setOnPreparedListener { mp -> mp.setVolume(0f, 0f); video.start() }
+        video.setOnCompletionListener { end() }
+        video.setOnErrorListener { _, _, _ -> end(); true }
+        frame.addView(overlay, android.widget.FrameLayout.LayoutParams(-1, -1))
+        video.setVideoURI(Uri.parse("android.resource://" + packageName + "/" + R.raw.intro))
+        overlay.postDelayed({ end() }, 12_000)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -282,6 +318,7 @@ class MainActivity : AppCompatActivity() {
         item("Profilo e sicurezza") { profile(first = false) }
         item("Impostazioni") { settings() }
         item("Aggiornamenti", if (!Updates.fromStore) Updates.known(this) else null) { updatesDialog() }
+        item("Video di presentazione") { showIntro {} }
         item("Informativa privacy") {
             try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Andycrucco/note-spese-trasferta/blob/main/PRIVACY.md"))) } catch (_: Exception) {}
         }
@@ -1185,6 +1222,7 @@ class MainActivity : AppCompatActivity() {
         val snd = input("Es. BBVA, Santander, Intesa").apply { setText(Store.senders) }
         val me = input("Nome e cognome", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS).apply { setText(Store.myName) }
         val loc = CheckBox(this).apply { text = "Usa la posizione della foto per la categoria"; isChecked = Store.useLocation; setTextColor(col(R.color.ink)) }
+        val intro = CheckBox(this).apply { text = "Video di apertura all'avvio"; isChecked = introOn(); setTextColor(col(R.color.ink)) }
         val capA = input("Es. 600", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL).apply { if (Store.capAmount > 0) setText(Fmt.plain(Store.capAmount)) }
         val capC = input("MXN", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS).apply { setText(Store.capCurrency) }
         val capY = input("Es. 2015", InputType.TYPE_CLASS_NUMBER).apply { if (Store.capYear > 0) setText(Store.capYear.toString()) }
@@ -1195,6 +1233,8 @@ class MainActivity : AppCompatActivity() {
         box.addView(txt("Lascia vuoto per riconoscere da solo gli SMS di addebito. Se ricevi avvisi sbagliati, scrivi il nome del mittente della banca.", 12f, R.color.ink2), lp(top = dp(4)))
         box.addView(loc, lp(top = dp(10)))
         box.addView(txt("La posizione viene confrontata con OpenStreetMap (servizio pubblico Overpass) solo per trovare il locale più vicino.", 12f, R.color.ink2))
+        box.addView(intro, lp(top = dp(10)))
+        box.addView(txt("10 secondi senza audio; si salta con un tocco. Non parte se l'app è protetta da impronta o PIN.", 12f, R.color.ink2))
         box.addView(cap("Massimali aziendali (vitto e soggiorno, 2015)"), lp(top = dp(14)))
         val zoneNames = listOf("Automatici (dal paese o dalla valuta)") + Ztravel.ZONES.map { it.name + " · pasto " + Fmt.plain(it.vitto) + " " + it.cur + " · notte " + Fmt.plain(it.soggiorno) + " " + it.cur }
         val zoneSp = android.widget.Spinner(this).apply {
@@ -1222,6 +1262,7 @@ class MainActivity : AppCompatActivity() {
                 Store.senders = snd.text.toString().trim()
                 Store.myName = me.text.toString().trim().take(60)
                 Store.useLocation = loc.isChecked
+                getSharedPreferences("ui", MODE_PRIVATE).edit().putBoolean("intro", intro.isChecked).apply()
                 Store.capAmount = Fmt.num(capA.text.toString()) ?: 0.0
                 Store.capCurrency = capC.text.toString().trim().uppercase().take(3)
                 Store.capYear = capY.text.toString().trim().toIntOrNull() ?: 0
