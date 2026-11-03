@@ -172,5 +172,13 @@ shell('input text 1111'); shell('input keyevent KEYCODE_ENTER')
 time.sleep(1.5); quick('t_avvio_frenata'); time.sleep(2); quick('t_avvio_raffreddamento')
 time.sleep(4); quick('t_avvio_app')
 print('app viva dopo il blocco:', alive())
+
+# --- widget sulla Home: il disco si scalda con gli addebiti da completare ---
+if tap_text('Apri il menu', desc=True) and scroll_to('Disco sulla schermata Home', top=900) and tap_text('Disco sulla schermata Home'):
+    time.sleep(2); quick('t_widget_richiesta')
+    for t in ['Add to home screen', 'ADD TO HOME SCREEN', 'Add automatically', 'Add', 'ADD', 'Aggiungi']:
+        if find(t) is not None: tap_text(t); break
+    time.sleep(2); shell('input keyevent KEYCODE_HOME'); time.sleep(3); quick('t_widget_home')
+print('app viva dopo il widget:', alive())
 print('crash:', shell('logcat -d -b crash | tail -40'))
 print('fatto')

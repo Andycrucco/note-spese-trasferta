@@ -137,6 +137,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** chiede al launcher di aggiungere il widget "Disco degli scontrini" alla Home */
+    private fun pinWidget() {
+        val am = android.appwidget.AppWidgetManager.getInstance(this)
+        if (Build.VERSION.SDK_INT >= 26 && am.isRequestPinAppWidgetSupported) {
+            am.requestPinAppWidget(android.content.ComponentName(this, DiscWidget::class.java), null, null)
+        } else AlertDialog.Builder(this).setTitle("Disco sulla schermata Home")
+            .setMessage("Tieni premuto su un punto vuoto della Home, scegli Widget e cerca \"Scontrini Trasferta\": il disco si scalda con gli addebiti senza scontrino.")
+            .setPositiveButton("Ho capito", null).show()
+    }
+
     // ---------- backup su file ----------
     private fun backupDialog() {
         val last = Backup.lastBackup(this)
@@ -319,6 +329,7 @@ class MainActivity : AppCompatActivity() {
         item("Impostazioni") { settings() }
         item("Aggiornamenti", if (!Updates.fromStore) Updates.known(this) else null) { updatesDialog() }
         item("Video di apertura") { showIntro {} }
+        item("Disco sulla schermata Home") { pinWidget() }
         item("Informativa privacy") {
             try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Andycrucco/note-spese-trasferta/blob/main/PRIVACY.md"))) } catch (_: Exception) {}
         }
