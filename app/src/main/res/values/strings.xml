@@ -3,4 +3,10 @@
     <string name="nfc_desc">Note spese trasferta: condivide il tuo nome con un collega al tavolo, solo mentre "Sono a tavola" è aperto</string>
     <string name="menu_apri">Apri il menu</string>
     <string name="menu_chiudi">Chiudi il menu</string>
+    <string name="sc_foto">Fotografa scontrino</string>
+    <string name="sc_foto_lungo">Nuova spesa: fotografa lo scontrino</string>
+    <string name="sc_todo">Da completare</string>
+    <string name="sc_todo_lungo">Addebiti della banca senza scontrino</string>
+    <string name="sc_storico">Storico trasferte</string>
+    <string name="tile_label">Scontrino</string>
 </resources>

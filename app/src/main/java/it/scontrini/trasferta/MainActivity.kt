@@ -52,6 +52,16 @@ class MainActivity : AppCompatActivity() {
     }
     private val pickStatement = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { importStatement(it) } }
     private val pickLogo = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let { saveLogo(it) } }
+    private val backupOut = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri -> uri?.let { doBackup(it) } }
+    private val backupIn = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { doRestore(it) } }
+    /** azione chiesta da una scorciatoia dell'icona o dal riquadro delle impostazioni rapide, eseguita dopo il primo render */
+    private var shortcut: String? = null
+
+    companion object {
+        const val ACT_FOTO = "it.scontrini.trasferta.FOTO"
+        const val ACT_TODO = "it.scontrini.trasferta.DA_COMPLETARE"
+        const val ACT_STORICO = "it.scontrini.trasferta.STORICO"
+    }
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
@@ -77,7 +87,58 @@ class MainActivity : AppCompatActivity() {
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         toggle.syncState()
         root.padForSystemBars()
-        if (b == null) { if (Store.consentShown(this)) askPermissions() else disclosure() }
+        if (b == null) { if (Store.consentShown(this)) { shortcut = intent?.action; if (shortcut == null || shortcut == Intent.ACTION_MAIN) askPermissions() } else disclosure() }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (Store.consentShown(this)) shortcut = intent.action
+    }
+
+    /** scorciatoie: Fotografa scontrino, Da completare, Storico trasferte */
+    private fun runShortcut() {
+        val a = shortcut ?: return
+        if (Lock.needed(this)) return // dopo lo sblocco la schermata torna qui e la scorciatoia parte
+        shortcut = null
+        when (a) {
+            ACT_FOTO -> startActivity(Intent(this, ExpenseActivity::class.java).putExtra(ExpenseActivity.EXTRA_CAMERA, true))
+            ACT_TODO -> todoAnchor?.let { v -> scroll.post { scroll.smoothScrollTo(0, maxOf(0, v.top - dp(12))) } }
+            ACT_STORICO -> tripHistory()
+        }
+    }
+
+    // ---------- backup su file ----------
+    private fun backupDialog() {
+        val last = Backup.lastBackup(this)
+        val box = vbox().apply { setPadding(dp(22), dp(8), dp(22), 0) }
+        box.addView(txt("Salva in un file ZIP spese, addebiti, foto e logo. Serve se cambi telefono o reinstalli l'app senza usare il repository condiviso.", 13.5f, R.color.ink2))
+        box.addView(txt("Il file non è cifrato: tienilo in un posto sicuro, per esempio il tuo OneDrive. Il token del repository non viene salvato.", 12.5f, R.color.ink2), lp(top = dp(8)))
+        box.addView(txt("Ultimo backup: " + (if (last > 0) Fmt.dmy(java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(last))) else "mai"), 13f, R.color.ink, true), lp(top = dp(10)))
+        AlertDialog.Builder(this).setTitle("Backup su file").setView(box)
+            .setPositiveButton("Crea backup") { _, _ -> try { backupOut.launch(Backup.fileName()) } catch (_: Exception) { toast("Nessuna app per salvare i file.") } }
+            .setNeutralButton("Ripristina") { _, _ -> try { backupIn.launch(arrayOf("application/zip", "application/octet-stream")) } catch (_: Exception) { toast("Nessuna app per scegliere i file.") } }
+            .setNegativeButton("Chiudi", null).show()
+    }
+
+    private fun doBackup(uri: Uri) {
+        Thread {
+            val msg = try {
+                val n = contentResolver.openOutputStream(uri)?.use { Backup.write(this, it) } ?: throw Exception("file non scrivibile")
+                "Backup creato: ${Store.expenses.size} spese, $n foto."
+            } catch (e: Exception) { "Backup non riuscito: " + (e.message ?: "errore") }
+            runOnUiThread { toast(msg); render() }
+        }.start()
+    }
+
+    private fun doRestore(uri: Uri) {
+        Thread {
+            val msg = try {
+                val r = synchronized(Store) { contentResolver.openInputStream(uri)?.use { Backup.read(this, it) } ?: throw Exception("file non leggibile") }
+                if (Sync.connected) Sync.later(this, force = true)
+                "Ripristino fatto: ${r.added} spese nuove, ${r.updated} aggiornate, ${r.sms} addebiti, ${r.photos} foto."
+            } catch (e: Exception) { "Ripristino non riuscito: " + (e.message ?: "errore") }
+            runOnUiThread { toast(msg); render() }
+        }.start()
     }
 
     override fun onPostCreate(b: Bundle?) {
@@ -102,6 +163,7 @@ class MainActivity : AppCompatActivity() {
         Store.reload(this)
         render()
         askCardOnce()
+        runShortcut()
         Sync.onDone = { runOnUiThread { if (!isFinishing) render() } }
         Sync.later(this, force = false)
         if (!Updates.fromStore && Updates.due(this) && !checkingUpdates) {
@@ -215,6 +277,7 @@ class MainActivity : AppCompatActivity() {
         }
         item("Incolla SMS della banca") { pasteSms() }
         item("Collega MacroDroid") { macroDroid() }
+        item("Backup su file", if (!Sync.connected && Store.expenses.size >= 3 && System.currentTimeMillis() - Backup.lastBackup(this) > 14 * 86_400_000L) "!" else null) { backupDialog() }
         section("App")
         item("Profilo e sicurezza") { profile(first = false) }
         item("Impostazioni") { settings() }
@@ -589,9 +652,15 @@ class MainActivity : AppCompatActivity() {
         if (Sync.connected) root.addView(txt(Sync.status(), 12f, if (Store.syncMsg.startsWith("non riuscita")) R.color.warn else R.color.ink2).apply {
             setPadding(0, dp(4), 0, 0); setOnClickListener { repoDialog() }
         })
-        else if (Store.expenses.isNotEmpty()) root.addView(txt("Usi più telefoni? Collega il repository condiviso ›", 12.5f, R.color.red, true).apply {
-            setPadding(0, dp(4), 0, 0); setOnClickListener { repoDialog() }
-        })
+        else if (Store.expenses.isNotEmpty()) {
+            root.addView(txt("Usi più telefoni? Collega il repository condiviso ›", 12.5f, R.color.red, true).apply {
+                setPadding(0, dp(4), 0, 0); setOnClickListener { repoDialog() }
+            })
+            if (Store.expenses.size >= 3 && System.currentTimeMillis() - Backup.lastBackup(this) > 14 * 86_400_000L)
+                root.addView(txt("Le spese sono solo su questo telefono: fai un backup su file ›", 12.5f, R.color.warn, true).apply {
+                    setPadding(0, dp(4), 0, 0); setOnClickListener { backupDialog() }
+                })
+        }
         if (Store.myName.isNotBlank()) {
             root.addView(txt("Ciao " + Store.myName.substringBefore(' ') + (if (Store.myCard.isNotEmpty()) "  ·  carta " + Store.myCard else "") + (if (Store.lockEnabled) "  ·  app protetta" else ""), 13f, R.color.ink2), lp(top = dp(6)))
         }
@@ -734,6 +803,7 @@ class MainActivity : AppCompatActivity() {
                 renderList(items, hint = false)
             }
             root.addView(txt("Tocca una spesa per modificarla. Tieni premuto per condividere il PDF o eliminarla.", 12f, R.color.ink2), lp(top = dp(8)))
+            renderChecks(list)
             root.addView(cap("Esporta per Ztravel"), lp(top = dp(22)))
             root.addView(btn("Crea cartella per Ztravel") { exportFolder(list) }, lp(top = dp(6)))
             root.addView(btn("Solo CSV di riepilogo", false) { exportCsv(list) }, lp(top = dp(8)))
@@ -749,11 +819,44 @@ class MainActivity : AppCompatActivity() {
             }
             renderTotals(list)
             renderList(list)
+            renderChecks(list)
             root.addView(cap("Esporta per Ztravel").also { exportAnchor = it }, lp(top = dp(22)))
             root.addView(btn("Crea cartella per Ztravel") { exportFolder(list) }, lp(top = dp(6)))
             root.addView(txt("Dentro trovi la sottocartella Ztravel: un PDF per spesa sotto i 600 KB con la pagina inflazione per pasti e pernotti (N. Alleg.), il PDF unico per la modalità massiva, il PDF \"nessun documento\" e le righe con le Mance separate. Gli altri file numerati nell'ordine della banca sono il tuo archivio. Se poi aggiungi un SMS perso, i numeri si riordinano da soli: riesporta e la cartella viene rifatta. Finisce in Download/NoteSpese e puoi inviarla a OneDrive.", 12f, R.color.ink2), lp(top = dp(4)))
             root.addView(btn("Solo CSV di riepilogo", false) { exportCsv(list) }, lp(top = dp(8)))
         }
+    }
+
+    /** Controllo prima dell'invio: cosa sistemare perché la nota spese non torni indietro. */
+    private fun renderChecks(list: List<Expense>) {
+        val issues = Checks.forTrip(list, Store.pending())
+        val severe = issues.count { it.severe }
+        root.addView(cap("Controllo prima dell'invio"), lp(top = dp(22)))
+        val (c, inner) = card()
+        if (issues.isEmpty()) {
+            c.strokeColor = col(R.color.ok)
+            inner.addView(txt("Tutto pronto per l'invio", 15f, R.color.ok, true))
+            inner.addView(txt("Foto, dichiarazioni, taxi e addebiti della banca sono in ordine.", 13f, R.color.ink2), lp(top = dp(2)))
+        } else {
+            c.strokeColor = col(if (severe > 0) R.color.red else R.color.warn)
+            inner.addView(txt(
+                if (severe > 0) "$severe " + (if (severe == 1) "cosa da sistemare" else "cose da sistemare") + (if (issues.size > severe) " · ${issues.size - severe} da controllare" else "")
+                else "${issues.size} " + (if (issues.size == 1) "cosa da controllare" else "cose da controllare"),
+                15f, if (severe > 0) R.color.red else R.color.warn, true))
+            issues.take(8).forEach { i ->
+                val t = txt((if (i.severe) "• " else "◦ ") + i.text, 13.5f, if (i.severe) R.color.ink else R.color.ink2).apply { setPadding(0, dp(6), 0, dp(6)) }
+                t.setOnClickListener {
+                    when {
+                        i.sms != null -> startActivity(Intent(this, ExpenseActivity::class.java).putExtra(ExpenseActivity.EXTRA_SMS, i.sms.id).putExtra(ExpenseActivity.EXTRA_CAMERA, true))
+                        i.expense != null -> startActivity(Intent(this, ExpenseActivity::class.java).putExtra(ExpenseActivity.EXTRA_EXP, i.expense.id))
+                    }
+                }
+                inner.addView(t)
+            }
+            if (issues.size > 8) inner.addView(txt("…e altre ${issues.size - 8}.", 12.5f, R.color.ink2), lp(top = dp(2)))
+            inner.addView(txt("Tocca una riga per aprire la spesa.", 12f, R.color.ink2), lp(top = dp(4)))
+        }
+        root.addView(c, lp(top = dp(6)))
     }
 
     private fun renderTotals(list: List<Expense>) {
@@ -914,7 +1017,15 @@ class MainActivity : AppCompatActivity() {
         startActivity(Exporter.shareIntent(this, f, "text/csv", "Invia il CSV"))
     }
 
-    private fun exportFolder(list: List<Expense>) {
+    private fun exportFolder(list: List<Expense>, checked: Boolean = false) {
+        val severe = Checks.forTrip(list, Store.pending()).count { it.severe }
+        if (!checked && severe > 0) {
+            AlertDialog.Builder(this).setTitle("$severe " + (if (severe == 1) "cosa da sistemare" else "cose da sistemare"))
+                .setMessage("Il controllo prima dell'invio ha trovato spese senza foto, taxi senza percorso o addebiti senza scontrino. Puoi esportare lo stesso e sistemarle dopo: la cartella si rifà quando riesporti.")
+                .setPositiveButton("Esporta lo stesso") { _, _ -> exportFolder(list, true) }
+                .setNegativeButton("Prima sistemo", null).show()
+            return
+        }
         val label = if (viewTrip == ALL) "tutte-le-trasferte" else (viewTrip ?: Store.trip)
         toast("Preparo la cartella: per i pasti scarico i dati sull'inflazione…")
         Thread {

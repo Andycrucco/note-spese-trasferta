@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- tieni premuta l'icona dell'app: fotografa subito lo scontrino, apri Da completare o lo storico -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="foto"
+        android:enabled="true"
+        android:icon="@drawable/ic_sc_foto"
+        android:shortcutShortLabel="@string/sc_foto"
+        android:shortcutLongLabel="@string/sc_foto_lungo">
+        <intent
+            android:action="it.scontrini.trasferta.FOTO"
+            android:targetPackage="it.scontrini.trasferta"
+            android:targetClass="it.scontrini.trasferta.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="todo"
+        android:enabled="true"
+        android:icon="@drawable/ic_sc_todo"
+        android:shortcutShortLabel="@string/sc_todo"
+        android:shortcutLongLabel="@string/sc_todo_lungo">
+        <intent
+            android:action="it.scontrini.trasferta.DA_COMPLETARE"
+            android:targetPackage="it.scontrini.trasferta"
+            android:targetClass="it.scontrini.trasferta.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="storico"
+        android:enabled="true"
+        android:icon="@drawable/ic_sc_storico"
+        android:shortcutShortLabel="@string/sc_storico"
+        android:shortcutLongLabel="@string/sc_storico">
+        <intent
+            android:action="it.scontrini.trasferta.STORICO"
+            android:targetPackage="it.scontrini.trasferta"
+            android:targetClass="it.scontrini.trasferta.MainActivity" />
+    </shortcut>
+</shortcuts>

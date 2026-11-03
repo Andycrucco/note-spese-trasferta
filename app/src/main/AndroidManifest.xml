@@ -50,7 +50,21 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- scorciatoie dell'icona: Fotografa scontrino, Da completare, Storico -->
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- riquadro "Scontrino" nelle impostazioni rapide -->
+        <service
+            android:name=".ReceiptTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_notif"
+            android:label="@string/tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
 
         <!-- link del QR/NFC aperto su un telefono che ha già l'app: il nome entra tra i commensali suggeriti -->
         <activity
