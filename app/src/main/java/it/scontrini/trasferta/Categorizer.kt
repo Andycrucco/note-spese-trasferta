@@ -120,7 +120,8 @@ object Categorizer {
         country?.uppercase()?.takeIf { it.length == 2 } ?: CUR_COUNTRY[currency?.uppercase() ?: ""] ?: ""
 }
 
-data class CpiPoint(val year: Int, val value: Double)
+/** est = anno stimato con le previsioni FMI (non ancora pubblicato dalla Banca Mondiale) */
+data class CpiPoint(val year: Int, val value: Double, val est: Boolean = false)
 
 /** Calcoli sull'indice dei prezzi al consumo (FP.CPI.TOTL, 2010 = 100). */
 object CpiMath {
@@ -134,6 +135,22 @@ object CpiMath {
         val a = points.find { it.year == from }?.value ?: return null
         val b = points.find { it.year == to }?.value ?: return null
         return if (a > 0) (b / a - 1) * 100 else null
+    }
+
+    /**
+     * Prolunga la serie ufficiale con le variazioni annue previste dall'FMI (World Economic Outlook)
+     * fino all'anno indicato: i punti aggiunti sono marcati come stima.
+     */
+    fun project(points: List<CpiPoint>, imf: Map<Int, Double>?, upTo: Int): List<CpiPoint> {
+        val s = points.sortedBy { it.year }.toMutableList()
+        if (imf == null || s.isEmpty()) return s
+        var last = s.last()
+        while (last.year < upTo) {
+            val r = imf[last.year + 1] ?: break
+            last = CpiPoint(last.year + 1, last.value * (1 + r / 100.0), est = true)
+            s.add(last)
+        }
+        return s
     }
 
     /** Massimale rivalutato all'ultimo anno disponibile. */

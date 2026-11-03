@@ -234,37 +234,42 @@ object PdfMaker {
             return
         }
         val pts = cpi.points.filter { it.year >= cpi.points.last().year - 15 }
-        val last = pts.last()
+        val official = pts.filter { !it.est }
+        val estYears = pts.filter { it.est }.map { it.year }.toSet()
+        val last = official.last()
+        val lastAll = pts.last()
         val yearSpent = e.date.take(4).toIntOrNull() ?: last.year
 
-        // grafico a linea dell'indice
-        y = lineChart(c, pts, M, y + 6f, cw, 210f) + 26f
+        // grafico a linea dell'indice: dato ufficiale pieno, stima FMI tratteggiata
+        y = lineChart(c, pts, M, y + 6f, cw, 170f) + 14f
+        legend(c, M, y, estYears.isNotEmpty()); y += 16f
         // inflazione annua
         val yy = CpiMath.yoy(pts)
         c.drawText("INFLAZIONE ANNUA (%)", M, y, paint(8f, false, INK2).apply { letterSpacing = 0.08f })
-        y = barChart(c, yy, M, y + 8f, cw, 150f) + 26f
+        y = barChart(c, yy, M, y + 8f, cw, 120f, estYears) + 20f
 
         // sintesi
         val lines = mutableListOf<Pair<String, Boolean>>()
-        lines.add(("Ultimo dato disponibile: " + last.year + ", indice " + String.format(java.util.Locale.ITALY, "%.1f", last.value) + ".") to true)
-        yy.lastOrNull()?.let { lines.add(("Inflazione " + it.first + ": " + String.format(java.util.Locale.ITALY, "%.1f", it.second) + "%.") to false) }
+        lines.add(("Ultimo dato ufficiale (Banca Mondiale): " + last.year + ", indice " + String.format(java.util.Locale.ITALY, "%.1f", last.value) + ".") to true)
+        if (estYears.isNotEmpty()) lines.add(("Stima " + estYears.minOrNull() + (if (estYears.size > 1) "-" + estYears.maxOrNull() else "") + " con le previsioni FMI (World Economic Outlook): indice " + String.format(java.util.Locale.ITALY, "%.1f", lastAll.value) + (yy.lastOrNull()?.let { ", inflazione " + it.first + " " + String.format(java.util.Locale.ITALY, "%.1f", it.second) + "%" } ?: "") + ".") to false)
+        else yy.lastOrNull()?.let { lines.add(("Inflazione " + it.first + ": " + String.format(java.util.Locale.ITALY, "%.1f", it.second) + "%.") to false) }
         for (from in listOf(last.year - 5, 2015, 2010).distinct().filter { it < last.year }) {
             CpiMath.cumulative(pts + cpi.points, from, last.year)?.let {
                 lines.add(("Dal $from al ${last.year} i prezzi sono saliti del " + String.format(java.util.Locale.ITALY, "%.1f", it) + "%.") to false)
             }
         }
-        if (yearSpent > last.year) lines.add(("La spesa è del $yearSpent: la Banca Mondiale non ha ancora pubblicato il dato di quell'anno.") to false)
+        if (yearSpent > last.year && estYears.isEmpty()) lines.add(("La spesa è del $yearSpent: la Banca Mondiale non ha ancora pubblicato il dato di quell'anno.") to false)
         val zone = Ztravel.zoneFor(e)
         val manual = Store.capAmount > 0 && Store.capYear > 0 && Store.capCurrency.equals(e.currency, true)
         val hotel = Ztravel.isPernotto(Ztravel.voce(e))
         val capBase = if (manual && !hotel) Store.capAmount else zone?.takeIf { it.cur.equals(e.currency, true) }?.let { if (hotel) it.soggiorno else it.vitto } ?: 0.0
         val capYear = if (manual) Store.capYear else Ztravel.CAP_YEAR
         if (capBase > 0) {
-            CpiMath.revalue(capBase, capYear, cpi.points)?.let { (cap, yr) ->
+            CpiMath.revalue(capBase, capYear, pts.filter { it.year <= maxOf(yearSpent, last.year) } + cpi.points.filter { it.year < pts.first().year })?.let { (cap, yr) ->
                 val perHead = if (hotel) e.amount / e.nights.coerceAtLeast(1) else e.amount / e.people
                 val unit = if (hotel) " a notte" else " a persona"
                 val within = perHead <= cap + 0.005
-                lines.add(((if (hotel) "Massimale pernotto: " else "Massimale pasto: ") + Fmt.money(capBase) + " " + e.currency + " (" + capYear + (if (zone != null && !(manual && !hotel)) ", " + zone.name else "") + "), rivalutato al $yr: " + Fmt.money(cap) + " " + e.currency + unit + ".") to true)
+                lines.add(((if (hotel) "Massimale pernotto: " else "Massimale pasto: ") + Fmt.money(capBase) + " " + e.currency + " (" + capYear + (if (zone != null && !(manual && !hotel)) ", " + zone.name else "") + "), rivalutato al $yr" + (if (yr in estYears) " (stima)" else "") + ": " + Fmt.money(cap) + " " + e.currency + unit + ".") to true)
                 lines.add(((if (hotel) "Questo pernotto: " + Fmt.money(perHead) + " " + e.currency + unit + " (" + e.nights + (if (e.nights == 1) " notte)" else " notti)")
                     else "Questo pasto: " + Fmt.money(perHead) + " " + e.currency + unit + " (" + e.people + (if (e.people == 1) " persona)" else " persone, conto diviso per i commensali)")) +
                     " → " + (if (within) "entro il massimale rivalutato." else "oltre il massimale rivalutato di " + Fmt.money(perHead - cap) + ".")) to true)
@@ -274,6 +279,42 @@ object PdfMaker {
         y += 8f
         val upd = if (cpi.lastUpdated.isNotEmpty()) "aggiornamento Banca Mondiale " + cpi.lastUpdated + ", " else ""
         c.drawText("Fonte: data.worldbank.org/indicator/FP.CPI.TOTL · " + upd + "scaricato il " + Fmt.isoOf(cpi.fetchedAt), M, y, small)
+        y += 11f
+        if (estYears.isNotEmpty()) { c.drawText("Stime: FMI, World Economic Outlook (imf.org/external/datamapper, PCPIPCH)", M, y, small); y += 11f }
+        LocalContext.areaFor(e)?.let { a -> localPanel(c, a, M, y + 8f, cw) }
+    }
+
+    private fun legend(c: Canvas, x: Float, y: Float, withEst: Boolean) {
+        val lab = paint(8f, false, INK2)
+        c.drawLine(x, y - 3f, x + 18f, y - 3f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = RED; strokeWidth = 2f })
+        c.drawText("Dato ufficiale (Banca Mondiale)", x + 22f, y, lab)
+        if (withEst) {
+            val x2 = x + 170f
+            c.drawLine(x2, y - 3f, x2 + 18f, y - 3f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = EST; strokeWidth = 2f; pathEffect = android.graphics.DashPathEffect(floatArrayOf(4f, 3f), 0f) })
+            c.drawText("Stima con previsioni FMI (tratteggio)", x2 + 22f, y, lab)
+        }
+    }
+
+    private const val EST = 0xFFE08A00.toInt()
+
+    /** barre orizzontali: area locale (rossa) contro riferimento (grigio), con note e fonte */
+    private fun localPanel(c: Canvas, a: LocalContext.Area, x: Float, y0: Float, w: Float) {
+        var y = y0
+        c.drawLine(x, y, x + w, y, Paint().apply { color = LINE; strokeWidth = 1f }); y += 14f
+        c.drawText("CONTESTO LOCALE · " + a.name.uppercase(), x, y, paint(8f, true, RED).apply { letterSpacing = 0.06f }); y += 13f
+        for (l in wrap(a.title, paint(10f, true, INK), w, 2)) { c.drawText(l, x, y, paint(10f, true, INK)); y += 13f }
+        val maxV = a.bars.maxOf { it.value }.coerceAtLeast(0.01)
+        val labW = 150f; val barW = w - labW - 50f
+        for (b in a.bars) {
+            c.drawText(b.label, x, y + 8f, paint(8.5f, b.highlight, INK))
+            val bw = (b.value / maxV * barW).toFloat()
+            c.drawRect(x + labW, y, x + labW + bw, y + 10f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (b.highlight) RED else 0xFF8A9099.toInt() })
+            c.drawText(String.format(java.util.Locale.ITALY, "%.1f", b.value) + a.unit, x + labW + bw + 4f, y + 8.5f, paint(8.5f, true, INK))
+            y += 14f
+        }
+        y += 2f
+        for (n in a.notes) for (l in wrap(n, paint(8.5f, false, INK), w, 3)) { c.drawText(l, x, y, paint(8.5f, false, INK)); y += 11f }
+        for (l in wrap("Fonte: " + a.source, paint(7.5f, false, INK2), w, 2)) { c.drawText(l, x, y + 2f, paint(7.5f, false, INK2)); y += 10f }
     }
 
     private fun lineChart(c: Canvas, pts: List<CpiPoint>, x: Float, y: Float, w: Float, h: Float): Float {
@@ -295,12 +336,18 @@ object PdfMaker {
         fun py(v: Double) = (bottom - (v - lo) / span * (bottom - top)).toFloat()
         val path = android.graphics.Path()
         val fill = android.graphics.Path()
-        pts.forEachIndexed { i, p -> if (i == 0) { path.moveTo(px(i), py(p.value)); fill.moveTo(px(i), bottom); fill.lineTo(px(i), py(p.value)) } else { path.lineTo(px(i), py(p.value)); fill.lineTo(px(i), py(p.value)) } }
-        fill.lineTo(px(n - 1), bottom); fill.close()
+        val nOff = pts.count { !it.est }.coerceAtLeast(1)
+        pts.forEachIndexed { i, p -> if (i >= nOff) return@forEachIndexed; if (i == 0) { path.moveTo(px(i), py(p.value)); fill.moveTo(px(i), bottom); fill.lineTo(px(i), py(p.value)) } else { path.lineTo(px(i), py(p.value)); fill.lineTo(px(i), py(p.value)) } }
+        fill.lineTo(px(nOff - 1), bottom); fill.close()
         c.drawPath(fill, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x1FE10A1E })
         c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = RED; strokeWidth = 2f; style = Paint.Style.STROKE })
+        if (nOff < n) {
+            val est = android.graphics.Path(); est.moveTo(px(nOff - 1), py(pts[nOff - 1].value))
+            for (i in nOff until n) est.lineTo(px(i), py(pts[i].value))
+            c.drawPath(est, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = EST; strokeWidth = 2f; style = Paint.Style.STROKE; pathEffect = android.graphics.DashPathEffect(floatArrayOf(5f, 4f), 0f) })
+        }
         val endP = pts.last()
-        c.drawCircle(px(n - 1), py(endP.value), 3.5f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = RED })
+        c.drawCircle(px(n - 1), py(endP.value), 3.5f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (endP.est) EST else RED })
         val endLabel = String.format(java.util.Locale.ITALY, "%.1f", endP.value)
         val ep = paint(8.5f, true, INK)
         c.drawText(endLabel, (px(n - 1) - ep.measureText(endLabel)).coerceAtLeast(left), py(endP.value) - 7f, ep)
@@ -308,7 +355,7 @@ object PdfMaker {
         return y + h
     }
 
-    private fun barChart(c: Canvas, data: List<Pair<Int, Double>>, x: Float, y: Float, w: Float, h: Float): Float {
+    private fun barChart(c: Canvas, data: List<Pair<Int, Double>>, x: Float, y: Float, w: Float, h: Float, estYears: Set<Int> = emptySet()): Float {
         if (data.isEmpty()) return y
         val left = x + 34f; val right = x + w - 6f; val top = y + 12f; val bottom = y + h - 16f
         val hi = Math.ceil(data.maxOf { it.second }.coerceAtLeast(0.0) / 2) * 2
@@ -326,7 +373,16 @@ object PdfMaker {
         data.forEachIndexed { i, (yr, v) ->
             val cx = left + slot * i + slot / 2
             val y0 = py(0.0); val y1 = py(v)
-            c.drawRect(cx - bw / 2, min(y0, y1), cx + bw / 2, max(y0, y1), if (i == n - 1) barLast else bar)
+            if (yr in estYears) {
+                // stima: contorno arancione e trama a righe oblique
+                val r = RectF(cx - bw / 2, min(y0, y1), cx + bw / 2, max(y0, y1))
+                c.save(); c.clipRect(r)
+                val hatch = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = EST; strokeWidth = 1.2f }
+                var hx = r.left - r.height()
+                while (hx < r.right) { c.drawLine(hx, r.bottom, hx + r.height(), r.top, hatch); hx += 4f }
+                c.restore()
+                c.drawRect(r, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = EST; style = Paint.Style.STROKE; strokeWidth = 1f })
+            } else c.drawRect(cx - bw / 2, min(y0, y1), cx + bw / 2, max(y0, y1), if (i == n - 1 || (i + 1 < n && data[i + 1].first in estYears)) barLast else bar)
             val t = String.format(java.util.Locale.ITALY, "%.1f", v)
             c.drawText(t, cx - val8.measureText(t) / 2, if (v >= 0) y1 - 3f else y1 + 9f, val8)
             if (i % 2 == (n - 1) % 2) { val ys = yr.toString(); c.drawText(ys, cx - lab.measureText(ys) / 2, bottom + 11f, lab) }
@@ -377,7 +433,12 @@ object Exporter {
         if (!rebuild && pv >= 2) e.pdf?.let { val f = File(Store.pdfDir(ctx), it); if (f.exists() && f.name == e.pdfName() && f.length() <= PdfMaker.MAX_BYTES) return f }
         val p = e.photo?.let { File(it) }?.takeIf { it.exists() }
         val iso = Categorizer.countryFor(e.country, e.currency)
-        val cpi = if (PdfMaker.wantsCpi(e)) Cpi.get(ctx, iso) else null
+        val cpi = if (PdfMaker.wantsCpi(e)) Cpi.get(ctx, iso)?.let { s ->
+            // anni non ancora pubblicati dalla Banca Mondiale: stima con le previsioni FMI fino all'anno in corso
+            val upTo = maxOf(e.date.take(4).toIntOrNull() ?: 0, Fmt.today().take(4).toInt())
+            val imf = try { Imf.get(ctx, iso) } catch (_: Exception) { null }
+            Cpi.Series(s.country, s.name, CpiMath.project(s.points, imf, upTo), s.lastUpdated, s.fetchedAt)
+        } else null
         val f = PdfMaker.make(ctx, e, p?.let { BitmapFactory.decodeFile(it.absolutePath) }, cpi, iso)
         e.pdf = f.name
         return f

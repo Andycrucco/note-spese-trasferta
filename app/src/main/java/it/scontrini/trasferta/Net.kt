@@ -142,6 +142,39 @@ object Cpi {
     } catch (e: Exception) { null }
 }
 
+/**
+ * Previsioni FMI (World Economic Outlook, DataMapper): inflazione media annua PCPIPCH, anche per gli anni
+ * che la Banca Mondiale non ha ancora pubblicato. Copia sul telefono per 30 giorni (e nel repository condiviso).
+ */
+object Imf {
+    private val ISO3 = mapOf("MX" to "MEX", "IT" to "ITA", "PL" to "POL", "CZ" to "CZE", "US" to "USA", "CA" to "CAN", "CN" to "CHN",
+        "JP" to "JPN", "IN" to "IND", "BR" to "BRA", "AR" to "ARG", "GB" to "GBR", "DE" to "DEU", "FR" to "FRA", "ES" to "ESP",
+        "PT" to "PRT", "NL" to "NLD", "BE" to "BEL", "AT" to "AUT", "CH" to "CHE", "SE" to "SWE", "DK" to "DNK", "NO" to "NOR",
+        "FI" to "FIN", "IE" to "IRL", "GR" to "GRC", "HU" to "HUN", "RO" to "ROU", "SK" to "SVK", "SI" to "SVN", "HR" to "HRV",
+        "RU" to "RUS", "TR" to "TUR", "AU" to "AUS", "KR" to "KOR", "TH" to "THA", "VN" to "VNM", "SG" to "SGP", "CL" to "CHL",
+        "PE" to "PER", "CO" to "COL", "ZA" to "ZAF", "MA" to "MAR", "AE" to "ARE")
+
+    private fun cache(ctx: Context, iso2: String) = File(ctx.filesDir, "cpi_IMF_$iso2.json")
+
+    fun parse(body: String, iso3: String): Map<Int, Double>? = try {
+        val v = JSONObject(body).getJSONObject("values").getJSONObject("PCPIPCH").getJSONObject(iso3)
+        val m = HashMap<Int, Double>()
+        v.keys().forEach { k -> k.toIntOrNull()?.let { y -> if (!v.isNull(k)) m[y] = v.getDouble(k) } }
+        if (m.isEmpty()) null else m
+    } catch (e: Exception) { null }
+
+    fun get(ctx: Context, iso2: String): Map<Int, Double>? {
+        val iso3 = ISO3[iso2.uppercase()] ?: return null
+        val f = cache(ctx, iso2.uppercase())
+        val cached = if (f.exists()) parse(f.readText(), iso3) else null
+        if (cached != null && System.currentTimeMillis() - f.lastModified() < 30L * 86_400_000L) return cached
+        val body = httpGet("https://www.imf.org/external/datamapper/api/v1/PCPIPCH/$iso3")
+        val fresh = body?.let { parse(it, iso3) }
+        if (fresh != null) { try { f.writeText(body) } catch (_: Exception) {}; return fresh }
+        return cached
+    }
+}
+
 /** Cambio di riferimento BCE verso l'euro (servizio Frankfurter), con copia sul telefono. */
 object Fx {
     private fun file(ctx: Context) = File(ctx.filesDir, "fx.json")
