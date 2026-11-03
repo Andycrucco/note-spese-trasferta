@@ -240,13 +240,17 @@ object PdfMaker {
         val lastAll = pts.last()
         val yearSpent = e.date.take(4).toIntOrNull() ?: last.year
 
+        // riga dell'area locale (es. Monterrey) sulla stessa base, se la spesa è lì
+        val area = LocalContext.areaFor(e)
+        val ser = area?.series?.takeIf { area.country.equals(iso, true) }
+        val sec = ser?.let { s -> pts.map { p -> s.ratio(p.year)?.let { CpiPoint(p.year, p.value * it, p.est) } } }?.takeIf { l -> l.all { it != null } }?.filterNotNull()
         // grafico a linea dell'indice: dato ufficiale pieno, stima FMI tratteggiata
-        y = lineChart(c, pts, M, y + 6f, cw, 170f) + 14f
-        legend(c, M, y, estYears.isNotEmpty()); y += 16f
+        y = lineChart(c, pts, M, y + 6f, cw, if (area != null) 150f else 170f, sec, cpi.name, ser?.short ?: "") + 14f
+        legend(c, M, y, estYears.isNotEmpty(), if (sec != null) ser?.name else null); y += 16f
         // inflazione annua
         val yy = CpiMath.yoy(pts)
         c.drawText("INFLAZIONE ANNUA (%)", M, y, paint(8f, false, INK2).apply { letterSpacing = 0.08f })
-        y = barChart(c, yy, M, y + 8f, cw, 120f, estYears) + 20f
+        y = barChart(c, yy, M, y + 8f, cw, if (area != null) 100f else 120f, estYears) + 20f
 
         // sintesi
         val lines = mutableListOf<Pair<String, Boolean>>()
@@ -257,6 +261,10 @@ object PdfMaker {
             CpiMath.cumulative(pts + cpi.points, from, last.year)?.let {
                 lines.add(("Dal $from al ${last.year} i prezzi sono saliti del " + String.format(java.util.Locale.ITALY, "%.1f", it) + "%.") to false)
             }
+        }
+        if (sec != null && ser != null) {
+            val f1 = { v: Double -> String.format(java.util.Locale.ITALY, "%.1f", v) }; val f2 = { v: Double -> String.format(java.util.Locale.ITALY, "%.2f", v) }
+            lines.add(("Area di Monterrey, dato ufficiale INEGI: da dicembre 2010 a " + ser.last + " i prezzi sono saliti del " + f1(ser.growthArea()) + "% contro il " + f1(ser.growthCountry()) + "% del Messico; inflazione annua a " + ser.last + ": " + f2(ser.inflArea) + "% contro " + f2(ser.inflCountry) + "%.") to false)
         }
         if (yearSpent > last.year && estYears.isEmpty()) lines.add(("La spesa è del $yearSpent: la Banca Mondiale non ha ancora pubblicato il dato di quell'anno.") to false)
         val zone = Ztravel.zoneFor(e)
@@ -273,6 +281,10 @@ object PdfMaker {
                 lines.add(((if (hotel) "Questo pernotto: " + Fmt.money(perHead) + " " + e.currency + unit + " (" + e.nights + (if (e.nights == 1) " notte)" else " notti)")
                     else "Questo pasto: " + Fmt.money(perHead) + " " + e.currency + unit + " (" + e.people + (if (e.people == 1) " persona)" else " persone, conto diviso per i commensali)")) +
                     " → " + (if (within) "entro il massimale rivalutato." else "oltre il massimale rivalutato di " + Fmt.money(perHead - cap) + ".")) to true)
+                if (sec != null && ser != null) {
+                    val r1 = ser.ratio(yr); val r0 = ser.ratio(capYear)
+                    if (r1 != null && r0 != null) lines.add(lines.size - 1, ("Rivalutato con i prezzi dell'area di Monterrey: " + Fmt.money(cap * r1 / r0) + " " + e.currency + unit + ".") to false)
+                }
             }
         }
         for ((t, b) in lines) for (l in wrap(t, if (b) bold else body, cw, 3)) { c.drawText(l, M, y, if (b) bold else body); y += 15f }
@@ -281,10 +293,11 @@ object PdfMaker {
         c.drawText("Fonte: data.worldbank.org/indicator/FP.CPI.TOTL · " + upd + "scaricato il " + Fmt.isoOf(cpi.fetchedAt), M, y, small)
         y += 11f
         if (estYears.isNotEmpty()) { c.drawText("Stime: FMI, World Economic Outlook (imf.org/external/datamapper, PCPIPCH)", M, y, small); y += 11f }
-        LocalContext.areaFor(e)?.let { a -> localPanel(c, a, M, y + 8f, cw) }
+        if (sec != null && ser != null) { c.drawText("Monterrey: INEGI, INPC per città e nazionale (dicembre di ogni anno, ultimo " + ser.last + "), riportati sulla base Banca Mondiale 2010 = 100", M, y, small); y += 11f }
+        area?.let { a -> localPanel(c, a, M, y + 8f, cw) }
     }
 
-    private fun legend(c: Canvas, x: Float, y: Float, withEst: Boolean) {
+    private fun legend(c: Canvas, x: Float, y: Float, withEst: Boolean, areaName: String? = null) {
         val lab = paint(8f, false, INK2)
         c.drawLine(x, y - 3f, x + 18f, y - 3f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = RED; strokeWidth = 2f })
         c.drawText("Dato ufficiale (Banca Mondiale)", x + 22f, y, lab)
@@ -293,9 +306,15 @@ object PdfMaker {
             c.drawLine(x2, y - 3f, x2 + 18f, y - 3f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = EST; strokeWidth = 2f; pathEffect = android.graphics.DashPathEffect(floatArrayOf(4f, 3f), 0f) })
             c.drawText("Stima con previsioni FMI (tratteggio)", x2 + 22f, y, lab)
         }
+        if (areaName != null) {
+            val x3 = x + 345f
+            c.drawLine(x3, y - 3f, x3 + 18f, y - 3f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = NAVY; strokeWidth = 2f })
+            c.drawText(areaName, x3 + 22f, y, lab)
+        }
     }
 
     private const val EST = 0xFFE08A00.toInt()
+    private const val NAVY = 0xFF1F3A5F.toInt()
 
     /** barre orizzontali: area locale (rossa) contro riferimento (grigio), con note e fonte */
     private fun localPanel(c: Canvas, a: LocalContext.Area, x: Float, y0: Float, w: Float) {
@@ -317,9 +336,11 @@ object PdfMaker {
         for (l in wrap("Fonte: " + a.source, paint(7.5f, false, INK2), w, 2)) { c.drawText(l, x, y + 2f, paint(7.5f, false, INK2)); y += 10f }
     }
 
-    private fun lineChart(c: Canvas, pts: List<CpiPoint>, x: Float, y: Float, w: Float, h: Float): Float {
+    private fun lineChart(c: Canvas, pts: List<CpiPoint>, x: Float, y: Float, w: Float, h: Float,
+                          sec: List<CpiPoint>? = null, mainName: String = "", secName: String = ""): Float {
         val left = x + 34f; val bottom = y + h - 16f; val top = y + 6f; val right = x + w - 6f
-        val minV = pts.minOf { it.value }; val maxV = pts.maxOf { it.value }
+        val allV = pts.map { it.value } + (sec?.map { it.value } ?: emptyList())
+        val minV = allV.min(); val maxV = allV.max()
         val lo = Math.floor(minV / 10) * 10; val hi = Math.ceil(maxV / 10) * 10
         val span = (hi - lo).coerceAtLeast(1.0)
         val grid = Paint().apply { color = LINE; strokeWidth = 0.6f }
@@ -346,11 +367,22 @@ object PdfMaker {
             for (i in nOff until n) est.lineTo(px(i), py(pts[i].value))
             c.drawPath(est, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = EST; strokeWidth = 2f; style = Paint.Style.STROKE; pathEffect = android.graphics.DashPathEffect(floatArrayOf(5f, 4f), 0f) })
         }
+        if (sec != null && sec.size == n) {
+            val solid = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = NAVY; strokeWidth = 2f; style = Paint.Style.STROKE }
+            val dashed = Paint(solid).apply { pathEffect = android.graphics.DashPathEffect(floatArrayOf(5f, 4f), 0f) }
+            for (i in 1 until n) c.drawLine(px(i - 1), py(sec[i - 1].value), px(i), py(sec[i].value), if (sec[i].est) dashed else solid)
+            c.drawCircle(px(n - 1), py(sec.last().value), 3f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = NAVY })
+        }
         val endP = pts.last()
         c.drawCircle(px(n - 1), py(endP.value), 3.5f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (endP.est) EST else RED })
-        val endLabel = String.format(java.util.Locale.ITALY, "%.1f", endP.value)
-        val ep = paint(8.5f, true, INK)
+        val endLabel = (if (sec != null) "$mainName " else "") + String.format(java.util.Locale.ITALY, "%.1f", endP.value)
+        val ep = paint(8.5f, true, if (sec != null) (if (endP.est) EST else RED) else INK)
         c.drawText(endLabel, (px(n - 1) - ep.measureText(endLabel)).coerceAtLeast(left), py(endP.value) - 7f, ep)
+        if (sec != null && sec.size == n) {
+            val sl = secName + " " + String.format(java.util.Locale.ITALY, "%.1f", sec.last().value)
+            val sp = paint(8.5f, true, NAVY)
+            c.drawText(sl, (px(n - 1) - sp.measureText(sl)).coerceAtLeast(left), py(sec.last().value) + 20f, sp)
+        }
         pts.forEachIndexed { i, p -> if (i % 3 == 0 || i == n - 1) { val t = p.year.toString(); c.drawText(t, px(i) - lab.measureText(t) / 2, bottom + 11f, lab) } }
         return y + h
     }

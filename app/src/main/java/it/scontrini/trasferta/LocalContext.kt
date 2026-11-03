@@ -8,23 +8,44 @@ package it.scontrini.trasferta
  */
 object LocalContext {
     class Bar(val label: String, val value: Double, val highlight: Boolean)
+    /** indici ufficiali di dicembre (l'ultimo anno può essere l'ultimo mese pubblicato): nazionale e dell'area */
+    class Series(val name: String, val short: String, val last: String, val inflArea: Double, val inflCountry: Double,
+                 val country: Map<Int, Double>, val area: Map<Int, Double>) {
+        /** indice dell'area diviso indice nazionale, 2010 = 1: serve a disegnare la riga locale sulla base della Banca Mondiale */
+        fun ratio(year: Int): Double? {
+            if (year < 2010) return null
+            val k = country.keys.filter { it <= year }.maxOrNull() ?: return null
+            return (area.getValue(k) / area.getValue(2010)) / (country.getValue(k) / country.getValue(2010))
+        }
+        val lastYear: Int get() = country.keys.max()
+        fun growthArea() = (area.getValue(lastYear) / area.getValue(2010) - 1) * 100
+        fun growthCountry() = (country.getValue(lastYear) / country.getValue(2010) - 1) * 100
+    }
     class Area(
         val key: String, val name: String, val title: String,
         val bars: List<Bar>, val unit: String, val notes: List<String>, val source: String,
-        val keywords: List<String>, val box: DoubleArray? // latMin, latMax, lonMin, lonMax
+        val keywords: List<String>, val box: DoubleArray?, // latMin, latMax, lonMin, lonMax
+        val country: String = "", val series: Series? = null
     )
+
+    private val MTY = Series("Area di Monterrey (INEGI)", "Monterrey", "settembre 2026", 2.91, 3.45,
+        mapOf(2010 to 74.93, 2011 to 77.79, 2012 to 80.57, 2013 to 83.77, 2014 to 87.19, 2015 to 89.05, 2016 to 92.04, 2017 to 98.27, 2018 to 103.02,
+            2019 to 105.93, 2020 to 109.27, 2021 to 117.31, 2022 to 126.48, 2023 to 132.37, 2024 to 137.95, 2025 to 143.04, 2026 to 146.08),
+        mapOf(2010 to 78.01, 2011 to 80.70, 2012 to 83.24, 2013 to 85.90, 2014 to 89.07, 2015 to 90.59, 2016 to 93.46, 2017 to 98.68, 2018 to 103.31,
+            2019 to 106.30, 2020 to 108.92, 2021 to 117.25, 2022 to 126.30, 2023 to 131.56, 2024 to 137.09, 2025 to 141.91, 2026 to 143.40))
 
     val AREAS = listOf(
         Area("monterrey", "Area metropolitana di Monterrey (N.L.)",
-            "Inflazione annua a dicembre 2024: area di Monterrey contro media nazionale",
-            listOf(Bar("Monterrey (indice CIE-UANL)", 6.25, true), Bar("Messico (INPC, INEGI)", 4.21, false)), "%",
+            "Aumento dei prezzi da dicembre 2010 a settembre 2026 (INEGI)",
+            listOf(Bar("Area di Monterrey (INPC città)", 83.8, true), Bar("Messico (INPC nazionale)", 95.0, false)), "%",
             listOf(
-                "A fine 2024 i prezzi nell'area di Monterrey sono saliti circa 2 punti più della media del Messico.",
-                "San Pedro Garza García fa parte dell'area metropolitana: nessun istituto pubblica un indice dei prezzi solo per il comune."
+                "Secondo l'INEGI dal 2010 i prezzi nell'area di Monterrey sono saliti meno della media del Messico; a settembre 2026 l'inflazione annua è 2,91% a Monterrey contro 3,45% nazionale.",
+                "La forte crescita economica dell'area non si traduce in un'inflazione più alta: l'indice misura quanto cambiano i prezzi, non quanto costano. L'indice INEGI copre tutta l'area metropolitana; per San Pedro Garza García da solo non esiste.",
+                "Il CIE-UANL calcola un indice proprio (paniere del 1996) che a dicembre 2024 dava 6,25% contro il 4,21% dell'INEGI: qui si usa il dato ufficiale INEGI."
             ),
-            "Centro de Investigaciones Económicas, UANL (dicembre 2024), riportato da ABC Noticias il 13/01/2025",
+            "INEGI, Banco de Información Económica: INPC Monterrey e nazionale (base 2a quincena luglio 2018 = 100), pubblicati da DATA Nuevo León; CIE-UANL, dicembre 2024",
             listOf("monterrey", "san pedro", "garza garc", "escobedo", "apodaca", "santa catarina", "nuevo leon", "nuevo león"),
-            doubleArrayOf(25.40, 26.05, -100.70, -99.90)),
+            doubleArrayOf(25.40, 26.05, -100.70, -99.90), "MX", MTY),
         Area("slaskie", "Slesia (Katowice e Czestochowa)",
             "Ricchezza prodotta per abitante, 2023 (media del voivodato di Slesia = 100)",
             listOf(Bar("Subregione di Katowice", 135.2, true), Bar("Media voivodato di Slesia", 100.0, false)), "",
