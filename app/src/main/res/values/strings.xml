@@ -9,4 +9,6 @@
     <string name="sc_todo_lungo">Addebiti della banca senza scontrino</string>
     <string name="sc_storico">Storico trasferte</string>
     <string name="tile_label">Scontrino</string>
+    <string name="widget_nome">Disco degli scontrini</string>
+    <string name="widget_desc">Il disco si scalda con gli addebiti senza scontrino e si raffredda quando hai completato tutto</string>
 </resources>

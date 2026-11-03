@@ -118,6 +118,7 @@ object Store {
         val tmp = File(ctx.filesDir, "data.tmp")
         tmp.writeBytes(out)
         if (!tmp.renameTo(file(ctx))) { file(ctx).writeBytes(out); tmp.delete() }
+        Disc.refreshWidget(ctx)
     }
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences("app", Context.MODE_PRIVATE)

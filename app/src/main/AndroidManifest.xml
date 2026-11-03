@@ -54,6 +54,17 @@
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
 
+        <!-- widget Home: il disco si scalda con gli addebiti da completare -->
+        <receiver
+            android:name=".DiscWidget"
+            android:exported="false"
+            android:label="@string/widget_nome">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_disco_info" />
+        </receiver>
+
         <!-- riquadro "Scontrino" nelle impostazioni rapide -->
         <service
             android:name=".ReceiptTileService"

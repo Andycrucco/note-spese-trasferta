@@ -631,11 +631,12 @@ class ExpenseActivity : AppCompatActivity() {
     }
 
     private fun read(bmp: Bitmap) {
-        status.text = "Leggo lo scontrino…"; status.setTextColor(col(R.color.ink))
+        status.text = "Leggo lo scontrino…"; status.setTextColor(col(R.color.ink)); Disc.spinText(status, true)
         Thread {
             val res = try { ocrBest(bmp) } catch (e: Exception) { null }
             if (res != null && res.first !== bmp) photo?.let { f -> try { Images.saveJpeg(res.first, f) } catch (_: Exception) {} }
             runOnUiThread {
+                Disc.spinText(status, false)
                 if (res == null) {
                     status.text = "Non sono riuscito a leggere lo scontrino. Compila i campi a mano o tocca i numeri sulla foto."
                     status.setTextColor(col(R.color.warn)); return@runOnUiThread

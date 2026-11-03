@@ -151,23 +151,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun doBackup(uri: Uri) {
+        val busy = Disc.Busy(this, "Creo il backup…")
         Thread {
             val msg = try {
                 val n = contentResolver.openOutputStream(uri)?.use { Backup.write(this, it) } ?: throw Exception("file non scrivibile")
                 "Backup creato: ${Store.expenses.size} spese, $n foto."
             } catch (e: Exception) { "Backup non riuscito: " + (e.message ?: "errore") }
-            runOnUiThread { toast(msg); render() }
+            runOnUiThread { busy.dismiss(); toast(msg); render() }
         }.start()
     }
 
     private fun doRestore(uri: Uri) {
+        val busy = Disc.Busy(this, "Ripristino il backup…")
         Thread {
             val msg = try {
                 val r = synchronized(Store) { contentResolver.openInputStream(uri)?.use { Backup.read(this, it) } ?: throw Exception("file non leggibile") }
                 if (Sync.connected) Sync.later(this, force = true)
                 "Ripristino fatto: ${r.added} spese nuove, ${r.updated} aggiornate, ${r.sms} addebiti, ${r.photos} foto."
             } catch (e: Exception) { "Ripristino non riuscito: " + (e.message ?: "errore") }
-            runOnUiThread { toast(msg); render() }
+            runOnUiThread { busy.dismiss(); toast(msg); render() }
         }.start()
     }
 
@@ -684,8 +686,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        if (Sync.connected) root.addView(txt(Sync.status(), 12f, if (Store.syncMsg.startsWith("non riuscita")) R.color.warn else R.color.ink2).apply {
+        if (Sync.connected) root.addView(txt(if (Sync.busy) "Sincronizzo con il repository…" else Sync.status(), 12f, if (Store.syncMsg.startsWith("non riuscita")) R.color.warn else R.color.ink2).apply {
             setPadding(0, dp(4), 0, 0); setOnClickListener { repoDialog() }
+            if (Sync.busy) Disc.spinText(this, true)
         })
         else if (Store.expenses.isNotEmpty()) {
             root.addView(txt("Usi più telefoni? Collega il repository condiviso ›", 12.5f, R.color.red, true).apply {
@@ -747,7 +750,11 @@ class MainActivity : AppCompatActivity() {
 
         // transazioni da completare: SMS ed estratto conto senza scontrino
         val pend = Store.pending()
-        root.addView(cap("Da completare (${pend.size})").also { todoAnchor = it }, lp(top = dp(22)))
+        val todoHead = hbox().apply { gravity = Gravity.CENTER_VERTICAL }
+        todoHead.addView(Disc.heatIcon(this, pend.size, 30).apply { (layoutParams as LinearLayout.LayoutParams).marginEnd = dp(8) })
+        todoHead.addView(cap("Da completare (${pend.size})"), LinearLayout.LayoutParams(0, -2, 1f))
+        todoHead.addView(txt(when (Disc.level(pend.size)) { 0 -> "disco freddo"; 1 -> "tiepido"; 2 -> "caldo"; else -> "incandescente" }, 11.5f, R.color.ink2))
+        root.addView(todoHead.also { todoAnchor = it }, lp(top = dp(18)))
         val todoRow = hbox()
         todoRow.addView(btn("Incolla SMS", false) { pasteSms() }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) })
         todoRow.addView(btn("Estratto conto", false) {
@@ -816,6 +823,7 @@ class MainActivity : AppCompatActivity() {
 
         val list = visible()
         if (list.isEmpty()) {
+            root.addView(ImageView(this).apply { setImageResource(R.drawable.disc_heat_0) }, LinearLayout.LayoutParams(dp(96), dp(96)).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(16) })
             root.addView(txt(
                 if (Store.expenses.isEmpty()) "Nessuna spesa registrata. Fotografa il primo scontrino: qui vedrai i totali per carta e per categoria."
                 else "Nessuna spesa in questa trasferta." + (if (nTrips > 0) " Le spese delle trasferte precedenti sono nello Storico." else ""), 14f, R.color.ink2
@@ -868,13 +876,16 @@ class MainActivity : AppCompatActivity() {
         val severe = issues.count { it.severe }
         root.addView(cap("Controllo prima dell'invio"), lp(top = dp(22)))
         val (c, inner) = card()
+        val head = hbox().apply { gravity = Gravity.CENTER_VERTICAL }
+        head.addView(Disc.heatIcon(this, if (issues.isEmpty()) 0 else maxOf(1, severe * 2), 40).apply { (layoutParams as LinearLayout.LayoutParams).marginEnd = dp(10) })
+        val headText = vbox(); head.addView(headText, LinearLayout.LayoutParams(0, -2, 1f)); inner.addView(head)
         if (issues.isEmpty()) {
             c.strokeColor = col(R.color.ok)
-            inner.addView(txt("Tutto pronto per l'invio", 15f, R.color.ok, true))
-            inner.addView(txt("Foto, dichiarazioni, taxi e addebiti della banca sono in ordine.", 13f, R.color.ink2), lp(top = dp(2)))
+            headText.addView(txt("Tutto pronto per l'invio", 15f, R.color.ok, true))
+            headText.addView(txt("Disco freddo: foto, dichiarazioni, taxi e addebiti della banca sono in ordine.", 13f, R.color.ink2), lp(top = dp(2)))
         } else {
             c.strokeColor = col(if (severe > 0) R.color.red else R.color.warn)
-            inner.addView(txt(
+            headText.addView(txt(
                 if (severe > 0) "$severe " + (if (severe == 1) "cosa da sistemare" else "cose da sistemare") + (if (issues.size > severe) " · ${issues.size - severe} da controllare" else "")
                 else "${issues.size} " + (if (issues.size == 1) "cosa da controllare" else "cose da controllare"),
                 15f, if (severe > 0) R.color.red else R.color.warn, true))
@@ -1062,11 +1073,12 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val label = if (viewTrip == ALL) "tutte-le-trasferte" else (viewTrip ?: Store.trip)
-        toast("Preparo la cartella: per i pasti scarico i dati sull'inflazione…")
+        val busy = Disc.Busy(this, "Preparo la cartella: per i pasti scarico i dati sull'inflazione…")
         Thread {
             try {
                 val r = Exporter.folder(this, list, label)
                 runOnUiThread {
+                    busy.dismiss()
                     val miss = r.count - r.withPhoto
                     toast((if (r.savedToDownloads) "Cartella salvata in " + r.folder + ". " else "") +
                         "${r.count} scontrini" + (if (miss > 0) ", $miss senza foto." else "."))
@@ -1074,7 +1086,7 @@ class MainActivity : AppCompatActivity() {
                     render()
                 }
             } catch (e: Exception) {
-                runOnUiThread { toast("Non sono riuscito a creare la cartella: " + (e.message ?: "errore")) }
+                runOnUiThread { busy.dismiss(); toast("Non sono riuscito a creare la cartella: " + (e.message ?: "errore")) }
             }
         }.start()
     }
@@ -1125,7 +1137,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Estratto conto: legge il file, mostra i movimenti nuovi (spuntati) e salta i doppioni. */
     private fun importStatement(uri: Uri) {
-        toast("Leggo l'estratto conto…")
+        val busy = Disc.Busy(this, "Leggo l'estratto conto…")
         Thread {
             val res = try {
                 val text = Statement.readText(this, uri)
@@ -1133,6 +1145,7 @@ class MainActivity : AppCompatActivity() {
                     .filter { Store.myCard.isEmpty() || it.card.isEmpty() || it.card == Store.myCard }))
             } catch (e: Exception) { Result.failure(e) }
             runOnUiThread {
+                busy.dismiss()
                 res.onFailure { e -> toast(if (e is Statement.Unsupported) e.message ?: "" else "Non riesco a leggere questo file. Prova il CSV o l'Excel dell'estratto conto.") }
                 res.onSuccess { rows -> statementPreview(rows) }
             }

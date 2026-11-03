@@ -20,6 +20,8 @@ object Sync {
     class Error(msg: String) : Exception(msg)
 
     @Volatile private var running = false
+    /** sincronizzazione in corso (il disco gira accanto allo stato) */
+    val busy: Boolean get() = running
     private var lastAuto = 0L
     var onDone: (() -> Unit)? = null
 
