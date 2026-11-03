@@ -16,16 +16,28 @@ def sh(*a, check=True):
 def shell(cmd): return sh('shell', cmd)
 
 def shot(name):
-    time.sleep(1.5)
+    time.sleep(1.5); dismiss_anr()
     with open(os.path.join(OUT, name + '.png'), 'wb') as f:
         f.write(subprocess.run(['adb', 'exec-out', 'screencap', '-p'], capture_output=True).stdout)
     print('screenshot', name)
 
 def nodes():
-    shell('uiautomator dump /sdcard/ui.xml >/dev/null')
-    x = sh('shell', 'cat /sdcard/ui.xml')
-    try: return list(ET.fromstring(x[x.index('<'):]).iter('node'))
-    except Exception: return []
+    for _ in range(4):
+        shell('rm -f /sdcard/ui.xml')
+        out = sh('shell', 'uiautomator dump --compressed /sdcard/ui.xml', check=False)
+        x = sh('shell', 'cat /sdcard/ui.xml', check=False)
+        try: return list(ET.fromstring(x[x.index('<'):]).iter('node'))
+        except Exception: print('dump non riuscito:', out.strip()[:200]); time.sleep(2)
+    return []
+
+def dismiss_anr():
+    """chiude gli avvisi "non risponde" del launcher dell'emulatore"""
+    for _ in range(3):
+        ns = nodes()
+        if not any('responding' in (n.get('text') or '') for n in ns): return
+        for n in ns:
+            if (n.get('text') or '') in ('Wait', 'Attendi'):
+                x, y = center(n); shell(f'input tap {x} {y}'); time.sleep(2); break
 
 def center(n):
     a = list(map(int, re.findall(r'\d+', n.get('bounds'))))
@@ -60,6 +72,11 @@ def to_top():
     for _ in range(6): shell('input swipe 540 700 540 2000 300')
     time.sleep(1)
 
+# --- emulatore pronto ---
+time.sleep(40)
+shell('input keyevent KEYCODE_WAKEUP'); shell('wm dismiss-keyguard'); shell('input keyevent KEYCODE_HOME'); time.sleep(10)
+dismiss_anr()
+
 # --- installazione e dati di prova ---
 sh('install', '-r', '-g', APK)
 for p in ['POST_NOTIFICATIONS', 'ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION', 'ACCESS_MEDIA_LOCATION']:
@@ -87,6 +104,7 @@ for c in ['enter', 'clock -e hhmm 0930', 'battery -e level 100 -e plugged false'
 
 # --- schermate ---
 shell(f'am start -n {PKG}/.MainActivity'); time.sleep(8)
+dismiss_anr()
 shot('01_home')
 scroll_to('Da completare'); shot('02_da_completare')
 scroll_to('EUR'); shot('03_totali')

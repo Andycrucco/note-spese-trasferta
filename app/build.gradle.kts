@@ -11,8 +11,9 @@ android {
         applicationId = "it.scontrini.trasferta"
         minSdk = 26
         targetSdk = 36
-        versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
-        versionName = "1.0." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
+        // VERSION_CODE/VERSION_NAME arrivano dal workflow "Pubblica su Google Play"; altrimenti il numero della build
+        versionCode = (System.getenv("VERSION_CODE") ?: System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
+        versionName = System.getenv("VERSION_NAME") ?: ("1.0." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0"))
     }
 
     // Chiave di firma privata: arriva dai Secrets di GitHub (KEYSTORE_B64, KEYSTORE_PASSWORD), mai nel repository.

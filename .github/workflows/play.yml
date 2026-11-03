@@ -1,0 +1,96 @@
+name: Pubblica su Google Play
+
+# Avvio manuale (Actions > Pubblica su Google Play > Run workflow).
+# Compila l'AAB firmato con la chiave di caricamento e, se c'è il Secret PLAY_SERVICE_ACCOUNT_JSON,
+# lo carica sul canale scelto della Play Console. La prima versione va caricata a mano dalla Play Console
+# (l'AAB è nell'artifact "aab-play" e nel ramo play-aab).
+on:
+  workflow_dispatch:
+    inputs:
+      track:
+        description: "Canale Play: internal (test interno), alpha (test chiuso), production"
+        required: true
+        default: internal
+        type: choice
+        options: [internal, alpha, production]
+      edizione:
+        description: "senzaSms (consigliata per iniziare) o completa (richiede la dichiarazione SMS approvata)"
+        required: true
+        default: senzaSms
+        type: choice
+        options: [senzaSms, completa]
+      stato:
+        description: "draft = da confermare nella Play Console; completed = pubblica subito sul canale"
+        required: true
+        default: draft
+        type: choice
+        options: [draft, completed]
+
+permissions:
+  contents: write
+
+jobs:
+  play:
+    runs-on: ubuntu-latest
+    env:
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      PLAY_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apri la chiave di firma
+        run: |
+          if [ -z "$KEYSTORE_PASSWORD" ]; then echo "::error::Manca il Secret KEYSTORE_PASSWORD."; exit 1; fi
+          KEYSTORE_PASSWORD="$(printf %s "$KEYSTORE_PASSWORD" | tr -d ' \r\n\t')"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in signing/app.keystore.enc -out signing/app.keystore -pass env:KEYSTORE_PASSWORD 2>/dev/null || {
+            echo "::error::KEYSTORE_PASSWORD non apre la chiave."; exit 1; }
+          echo "KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          # numero di versione sempre crescente (minuti dal 1/1/2026) e nome con la data
+          echo "VERSION_CODE=$(( ($(date -u +%s) - 1767225600) / 60 ))" >> "$GITHUB_ENV"
+          echo "VERSION_NAME=$(date -u +%Y.%m.%d)" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Compila l'AAB
+        run: |
+          F=${{ inputs.edizione }}
+          T=$(echo "${F:0:1}" | tr a-z A-Z)${F:1}
+          gradle :app:bundle${T}Release --no-daemon
+          mkdir -p out && cp app/build/outputs/bundle/${F}Release/app-${F}-release.aab out/ScontriniTrasferta-${VERSION_NAME}-${F}.aab
+          echo "AAB=out/ScontriniTrasferta-${VERSION_NAME}-${F}.aab" >> "$GITHUB_ENV"
+          echo "Versione $VERSION_NAME (codice $VERSION_CODE)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aab-play
+          path: out/*.aab
+
+      - name: Salva l'AAB nel ramo play-aab (per scaricarlo dal browser)
+        run: |
+          cd out && git init -q -b play-aab
+          git config user.name "github-actions"; git config user.email "github-actions@users.noreply.github.com"
+          git add -A && git commit -q -m "AAB ${VERSION_NAME}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" play-aab
+
+      - name: Carica su Google Play
+        if: env.PLAY_JSON != ''
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: it.scontrini.trasferta
+          releaseFiles: ${{ env.AAB }}
+          track: ${{ inputs.track }}
+          status: ${{ inputs.stato }}
+          releaseName: ${{ env.VERSION_NAME }}
+          whatsNewDirectory: playstore/whatsnew
+
+      - name: Promemoria
+        if: env.PLAY_JSON == ''
+        run: echo "::notice::AAB pronto (artifact aab-play e ramo play-aab). Per il caricamento automatico aggiungi il Secret PLAY_SERVICE_ACCOUNT_JSON."
