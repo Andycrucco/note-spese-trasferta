@@ -124,4 +124,24 @@ if scroll_to('Crea cartella') and tap_text('Crea cartella'):
     time.sleep(45); shot('09_condividi')
     shell('input keyevent KEYCODE_BACK'); time.sleep(2)
 sh('pull', '/sdcard/Download/NoteSpese', os.path.join(OUT, 'export'), check=False)
+
+# --- prove delle funzioni nuove (immagini t_*, non per lo Store) ---
+def alive(): return shell(f'pidof {PKG}').strip() != ''
+shell(f'am start -n {PKG}/.MainActivity -a it.scontrini.trasferta.STORICO'); time.sleep(4); shot('t_scorciatoia_storico'); shell('input keyevent KEYCODE_BACK'); time.sleep(1)
+shell(f'am start -n {PKG}/.MainActivity -a it.scontrini.trasferta.DA_COMPLETARE'); time.sleep(4); shot('t_scorciatoia_todo')
+if tap_text('Apri il menu', desc=True) and tap_text('Backup su file'):
+    shot('t_backup_dialogo')
+    if tap_text('Crea backup'):
+        time.sleep(3); shot('t_backup_salva')
+        for t in ['SAVE', 'Save', 'Salva', 'SALVA']:
+            if find(t) is not None: tap_text(t); break
+        time.sleep(1.2); shot('t_backup_fatto')
+time.sleep(3)
+print('backup su disco:', shell('ls -la /sdcard/Download /sdcard/Documents 2>/dev/null | grep -i backup'))
+if tap_text('Apri il menu', desc=True) and tap_text('Backup su file') and tap_text('Ripristina'):
+    time.sleep(3); shot('t_ripristino_scegli')
+    if tap_text('NoteSpese_backup'): time.sleep(1.5); shot('t_ripristino_fatto')
+shell('cmd statusbar click-tile it.scontrini.trasferta/.ReceiptTileService'); time.sleep(4); shot('t_riquadro')
+print('app viva dopo le prove:', alive())
+print('crash:', shell('logcat -d -b crash | tail -40'))
 print('fatto')
