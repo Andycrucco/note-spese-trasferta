@@ -138,6 +138,10 @@ if tap_text('Apri il menu', desc=True) and tap_text('Backup su file'):
         time.sleep(1.2); shot('t_backup_fatto')
 time.sleep(3)
 print('backup su disco:', shell('ls -la /sdcard/Download /sdcard/Documents 2>/dev/null | grep -i backup'))
+sh('pull', '/sdcard/Download/', os.path.join(OUT, 'download'), check=False)
+for root, _, fs in os.walk(os.path.join(OUT, 'download')):
+    for f in fs:
+        if not f.startswith('NoteSpese_backup'): os.remove(os.path.join(root, f))
 if tap_text('Apri il menu', desc=True) and tap_text('Backup su file') and tap_text('Ripristina'):
     time.sleep(3); shot('t_ripristino_scegli')
     if tap_text('NoteSpese_backup'): time.sleep(1.5); shot('t_ripristino_fatto')
