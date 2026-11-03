@@ -145,9 +145,32 @@ for root, _, fs in os.walk(os.path.join(OUT, 'download')):
 if tap_text('Apri il menu', desc=True) and tap_text('Backup su file') and tap_text('Ripristina'):
     time.sleep(3); shot('t_ripristino_scegli')
     if tap_text('NoteSpese_backup'): time.sleep(1.5); shot('t_ripristino_fatto')
-if tap_text('Apri il menu', desc=True) and scroll_to('Video di presentazione', top=900) and tap_text('Video di presentazione'):
+if tap_text('Apri il menu', desc=True) and scroll_to('Video di apertura', top=900) and tap_text('Video di apertura'):
     time.sleep(3); shot('t_video'); time.sleep(9); shot('t_video_finito')
 shell('cmd statusbar click-tile it.scontrini.trasferta/.ReceiptTileService'); time.sleep(4); shot('t_riquadro')
 print('app viva dopo le prove:', alive())
+
+# --- apertura animata con il blocco: corsa, PIN (al posto dell'impronta), frenata, app ---
+import json as _j
+d = _j.load(open(os.path.join(HERE, 'demo', 'data.json'), encoding='utf-8')); d['lockEnabled'] = True
+open('/tmp/data_lock.json', 'w', encoding='utf-8').write(_j.dumps(d, ensure_ascii=False))
+open('/tmp/ui_lock.xml', 'w').write("<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n<map><boolean name=\"cardAsked\" value=\"true\" /><boolean name=\"intro\" value=\"true\" /><long name=\"lastBackup\" value=\"%d\" /></map>\n" % now)
+sh('push', '/tmp/data_lock.json', '/data/local/tmp/demo/data_lock.json'); sh('push', '/tmp/ui_lock.xml', '/data/local/tmp/demo/ui_lock.xml')
+shell('chmod 644 /data/local/tmp/demo/data_lock.json /data/local/tmp/demo/ui_lock.xml')
+print(shell('locksettings set-pin 1111'))
+shell(f'am force-stop {PKG}')
+shell(f"run-as {PKG} sh -c 'cp /data/local/tmp/demo/data_lock.json files/data.json && cp /data/local/tmp/demo/ui_lock.xml shared_prefs/ui.xml'")
+shell('input keyevent KEYCODE_WAKEUP'); shell('wm dismiss-keyguard'); shell('input text 1111'); shell('input keyevent KEYCODE_ENTER'); time.sleep(2)
+shell(f'am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n {PKG}/.MainActivity')
+def quick(name):
+    with open(os.path.join(OUT, name + '.png'), 'wb') as f:
+        f.write(subprocess.run(['adb', 'exec-out', 'screencap', '-p'], capture_output=True).stdout)
+    print('screenshot', name)
+quick('t_avvio_0'); time.sleep(1.2); quick('t_avvio_guida')
+time.sleep(3); quick('t_avvio_impronta')
+shell('input text 1111'); shell('input keyevent KEYCODE_ENTER')
+time.sleep(1.5); quick('t_avvio_frenata'); time.sleep(2); quick('t_avvio_raffreddamento')
+time.sleep(4); quick('t_avvio_app')
+print('app viva dopo il blocco:', alive())
 print('crash:', shell('logcat -d -b crash | tail -40'))
 print('fatto')

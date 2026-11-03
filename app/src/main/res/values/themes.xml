@@ -13,7 +13,7 @@
     <color name="warn">#FFB020</color>
     <color name="ic_bg">#E10A1E</color>
 
-    <style name="Theme.Scontrini" parent="Theme.Material3.Dark">
+    <style name="Base.Theme.Scontrini" parent="Theme.Material3.Dark">
         <item name="colorPrimary">@color/red</item>
         <item name="colorOnPrimary">#FFFFFF</item>
         <item name="colorPrimaryContainer">@color/red_dark</item>
@@ -37,6 +37,8 @@
         <item name="alertDialogTheme">@style/Scontrini.Dialog</item>
         <item name="materialAlertDialogTheme">@style/Scontrini.Dialog</item>
     </style>
+
+    <style name="Theme.Scontrini" parent="Base.Theme.Scontrini" />
 
     <!-- barra del titolo rossa con testo bianco -->
     <style name="Scontrini.ActionBar" parent="Widget.Material3.ActionBar.Solid">

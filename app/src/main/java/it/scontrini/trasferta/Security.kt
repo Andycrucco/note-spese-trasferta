@@ -115,6 +115,7 @@ object Lock {
 /** Schermata di accesso: impronta, volto o PIN del telefono. */
 class LockActivity : AppCompatActivity() {
     private lateinit var msg: TextView
+    private lateinit var frame: android.widget.FrameLayout
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
@@ -123,13 +124,19 @@ class LockActivity : AppCompatActivity() {
             gravity = Gravity.CENTER_HORIZONTAL or Gravity.CENTER_VERTICAL
             setPadding(dp(32), dp(32), dp(32), dp(32)); setBackgroundColor(col(R.color.graphite))
         }
-        root.addView(ImageView(this).apply { setImageResource(R.mipmap.ic_launcher) }, lp(w = dp(96), h = dp(96)))
+        val logo = ImageView(this).apply {
+            setImageResource(R.drawable.avd_logo)
+            background = android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(col(R.color.red)) }
+        }
+        root.addView(logo, lp(w = dp(112), h = dp(112)))
+        logo.post { (logo.drawable as? android.graphics.drawable.Animatable)?.start() }
         root.addView(txt("Note spese trasferta", 22f, bold = true).apply { gravity = Gravity.CENTER }, lp(top = dp(16)))
         root.addView(txt(listOf(Store.myName, Store.myEmail).filter { it.isNotBlank() }.joinToString("\n"), 14f, R.color.ink2).apply { gravity = Gravity.CENTER }, lp(top = dp(6)))
         msg = txt("", 14f, R.color.warn).apply { gravity = Gravity.CENTER }
         root.addView(msg, lp(top = dp(16)))
         root.addView(btn("Entra con impronta o PIN") { ask() }, lp(top = dp(20)))
-        setContentView(root)
+        frame = android.widget.FrameLayout(this).apply { addView(root, android.widget.FrameLayout.LayoutParams(-1, -1)) }
+        setContentView(frame)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() { finishAffinity() }
         })
@@ -138,6 +145,10 @@ class LockActivity : AppCompatActivity() {
 
     private fun ask() {
         msg.text = ""
-        Lock.prompt(this, "Entra in Note spese trasferta", { Lock.unlocked(); finish() }, { e -> msg.text = e })
+        Lock.prompt(this, "Entra in Note spese trasferta", {
+            Lock.unlocked()
+            // impronta = frenata: disco incandescente, raffreddamento, poi l'app
+            if (Intro.on(this)) BrakeShow(this, frame).let { s -> s.brake { s.close { finish() } } } else finish()
+        }, { e -> msg.text = e })
     }
 }

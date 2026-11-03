@@ -37,6 +37,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var drawer: DrawerLayout
     /** contenitore della schermata: sopra il menu può comparire il video di apertura */
     private lateinit var frame: android.widget.FrameLayout
+    private var menuLogo: ImageView? = null
     private lateinit var toggle: ActionBarDrawerToggle
     private lateinit var menuPanel: LinearLayout
     private var todoAnchor: View? = null
@@ -87,43 +88,36 @@ class MainActivity : AppCompatActivity() {
         setContentView(frame)
         toggle = ActionBarDrawerToggle(this, drawer, R.string.menu_apri, R.string.menu_chiudi)
         drawer.addDrawerListener(toggle)
+        drawer.addDrawerListener(object : DrawerLayout.SimpleDrawerListener() {
+            override fun onDrawerOpened(v: View) { (menuLogo?.drawable as? android.graphics.drawable.Animatable)?.start() }
+        })
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         toggle.syncState()
         root.padForSystemBars()
         if (b == null) {
             val fromLauncher = intent?.action == null || intent?.action == Intent.ACTION_MAIN
             val start = { if (Store.consentShown(this)) { shortcut = intent?.action; if (fromLauncher) askPermissions() } else disclosure() }
-            if (fromLauncher && introOn() && !Store.lockEnabled) showIntro(start) else start()
+            if (fromLauncher && Intro.on(this)) showIntro(start) else start()
         }
     }
 
-    // ---------- video di apertura ----------
-    private fun introOn() = getSharedPreferences("ui", MODE_PRIVATE).getBoolean("intro", true)
+    // ---------- apertura animata ----------
+    @Volatile private var introActive = false
 
-    /** Video di apertura (10 secondi, senza audio): si salta con un tocco, poi l'app continua. */
+    /** L'auto arriva e corre; con il blocco attivo aspetta l'impronta, poi frena, il disco si raffredda e l'app si apre. */
     private fun showIntro(then: () -> Unit) {
-        var done = false
-        val overlay = android.widget.FrameLayout(this).apply { setBackgroundColor(android.graphics.Color.BLACK); isClickable = true; isFocusable = true }
-        val video = android.widget.VideoView(this)
-        fun end() {
-            if (done) return
-            done = true
-            try { video.stopPlayback() } catch (_: Exception) {}
-            overlay.animate().alpha(0f).setDuration(250).withEndAction { frame.removeView(overlay); then() }.start()
+        introActive = true
+        val show = BrakeShow(this, frame)
+        val needLock = Lock.needed(this)
+        fun open() = show.close { introActive = false; then(); askCardOnce() }
+        fun brake() = show.brake { open() }
+        fun unlock() {
+            show.waitFinger("Appoggia il dito per frenare", null)
+            Lock.prompt(this, "Frena per entrare", { Lock.unlocked(); brake() }, { e ->
+                show.waitFinger((if (e.isNotBlank()) "$e\n" else "") + "Tocca per riprovare") { unlock() }
+            })
         }
-        overlay.addView(video, android.widget.FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
-        overlay.addView(txt("Scontrini Trasferta", 22f, R.color.ink, true).apply { gravity = Gravity.CENTER },
-            android.widget.FrameLayout.LayoutParams(-1, -2, Gravity.TOP).apply { topMargin = dp(96) })
-        overlay.addView(txt("Tocca per saltare", 13f, R.color.ink2).apply { gravity = Gravity.CENTER },
-            android.widget.FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { bottomMargin = dp(64) })
-        overlay.setOnClickListener { end() }
-        video.setOnClickListener { end() }
-        video.setOnPreparedListener { mp -> mp.setVolume(0f, 0f); video.start() }
-        video.setOnCompletionListener { end() }
-        video.setOnErrorListener { _, _, _ -> end(); true }
-        frame.addView(overlay, android.widget.FrameLayout.LayoutParams(-1, -1))
-        video.setVideoURI(Uri.parse("android.resource://" + packageName + "/" + R.raw.intro))
-        overlay.postDelayed({ end() }, 12_000)
+        show.drive { if (needLock) unlock() else brake() }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -195,11 +189,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        Lock.guard(this)
+        if (!introActive) Lock.guard(this)
         Store.reload(this)
         render()
-        askCardOnce()
-        runShortcut()
+        if (!introActive) { askCardOnce(); runShortcut() }
         Sync.onDone = { runOnUiThread { if (!isFinishing) render() } }
         Sync.later(this, force = false)
         if (!Updates.fromStore && Updates.due(this) && !checkingUpdates) {
@@ -279,7 +272,12 @@ class MainActivity : AppCompatActivity() {
                 setImageBitmap(logoBmp); adjustViewBounds = true; scaleType = ImageView.ScaleType.FIT_START
                 setBackgroundColor(android.graphics.Color.WHITE); setPadding(dp(8), dp(6), dp(8), dp(6)); maxHeight = dp(48)
             }, LinearLayout.LayoutParams(-2, dp(48)))
-        } else head.addView(ImageView(this).apply { setImageResource(R.mipmap.ic_launcher) }, LinearLayout.LayoutParams(dp(52), dp(52)))
+        } else head.addView(ImageView(this).apply {
+            // logo animato: il disco gira e frena ogni volta che apri il menu
+            setImageResource(R.drawable.avd_logo)
+            background = android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(android.graphics.Color.BLACK) }
+            menuLogo = this
+        }, LinearLayout.LayoutParams(dp(56), dp(56)))
         head.addView(txt("Note spese trasferta", 18f, R.color.ink, true), lp(top = dp(10)))
         head.addView(txt(listOf(Store.myName, if (Store.myCard.isNotEmpty()) "carta " + Store.myCard else "").filter { it.isNotEmpty() }.joinToString(" · ")
             .ifEmpty { "Versione " + Updates.currentName }, 13f, R.color.ink))
@@ -318,7 +316,7 @@ class MainActivity : AppCompatActivity() {
         item("Profilo e sicurezza") { profile(first = false) }
         item("Impostazioni") { settings() }
         item("Aggiornamenti", if (!Updates.fromStore) Updates.known(this) else null) { updatesDialog() }
-        item("Video di presentazione") { showIntro {} }
+        item("Video di apertura") { showIntro {} }
         item("Informativa privacy") {
             try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Andycrucco/note-spese-trasferta/blob/main/PRIVACY.md"))) } catch (_: Exception) {}
         }
@@ -1222,7 +1220,7 @@ class MainActivity : AppCompatActivity() {
         val snd = input("Es. BBVA, Santander, Intesa").apply { setText(Store.senders) }
         val me = input("Nome e cognome", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS).apply { setText(Store.myName) }
         val loc = CheckBox(this).apply { text = "Usa la posizione della foto per la categoria"; isChecked = Store.useLocation; setTextColor(col(R.color.ink)) }
-        val intro = CheckBox(this).apply { text = "Video di apertura all'avvio"; isChecked = introOn(); setTextColor(col(R.color.ink)) }
+        val intro = CheckBox(this).apply { text = "Video di apertura all'avvio"; isChecked = Intro.on(this); setTextColor(col(R.color.ink)) }
         val capA = input("Es. 600", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL).apply { if (Store.capAmount > 0) setText(Fmt.plain(Store.capAmount)) }
         val capC = input("MXN", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS).apply { setText(Store.capCurrency) }
         val capY = input("Es. 2015", InputType.TYPE_CLASS_NUMBER).apply { if (Store.capYear > 0) setText(Store.capYear.toString()) }
@@ -1234,7 +1232,7 @@ class MainActivity : AppCompatActivity() {
         box.addView(loc, lp(top = dp(10)))
         box.addView(txt("La posizione viene confrontata con OpenStreetMap (servizio pubblico Overpass) solo per trovare il locale più vicino.", 12f, R.color.ink2))
         box.addView(intro, lp(top = dp(10)))
-        box.addView(txt("10 secondi senza audio; si salta con un tocco. Non parte se l'app è protetta da impronta o PIN.", 12f, R.color.ink2))
+        box.addView(txt("L'auto arriva e frena, il disco si raffredda e l'app si apre (circa 6 secondi, senza audio; si salta con un tocco). Con l'app protetta, la frenata parte quando appoggi il dito.", 12f, R.color.ink2))
         box.addView(cap("Massimali aziendali (vitto e soggiorno, 2015)"), lp(top = dp(14)))
         val zoneNames = listOf("Automatici (dal paese o dalla valuta)") + Ztravel.ZONES.map { it.name + " · pasto " + Fmt.plain(it.vitto) + " " + it.cur + " · notte " + Fmt.plain(it.soggiorno) + " " + it.cur }
         val zoneSp = android.widget.Spinner(this).apply {
@@ -1262,7 +1260,7 @@ class MainActivity : AppCompatActivity() {
                 Store.senders = snd.text.toString().trim()
                 Store.myName = me.text.toString().trim().take(60)
                 Store.useLocation = loc.isChecked
-                getSharedPreferences("ui", MODE_PRIVATE).edit().putBoolean("intro", intro.isChecked).apply()
+                Intro.set(this, intro.isChecked)
                 Store.capAmount = Fmt.num(capA.text.toString()) ?: 0.0
                 Store.capCurrency = capC.text.toString().trim().uppercase().take(3)
                 Store.capYear = capY.text.toString().trim().toIntOrNull() ?: 0

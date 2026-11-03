@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+: schermata di avvio nera con il logo animato (disco che frena) sul cerchio rosso -->
+    <style name="Theme.Scontrini" parent="Base.Theme.Scontrini">
+        <item name="android:windowSplashScreenBackground">@color/graphite</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/avd_logo</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/red</item>
+        <item name="android:windowSplashScreenAnimationDuration">950</item>
+    </style>
+</resources>
