@@ -1220,7 +1220,7 @@ class MainActivity : AppCompatActivity() {
         val snd = input("Es. BBVA, Santander, Intesa").apply { setText(Store.senders) }
         val me = input("Nome e cognome", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS).apply { setText(Store.myName) }
         val loc = CheckBox(this).apply { text = "Usa la posizione della foto per la categoria"; isChecked = Store.useLocation; setTextColor(col(R.color.ink)) }
-        val intro = CheckBox(this).apply { text = "Video di apertura all'avvio"; isChecked = Intro.on(this); setTextColor(col(R.color.ink)) }
+        val intro = CheckBox(this).apply { text = "Video di apertura all'avvio"; isChecked = Intro.on(this@MainActivity); setTextColor(col(R.color.ink)) }
         val capA = input("Es. 600", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL).apply { if (Store.capAmount > 0) setText(Fmt.plain(Store.capAmount)) }
         val capC = input("MXN", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS).apply { setText(Store.capCurrency) }
         val capY = input("Es. 2015", InputType.TYPE_CLASS_NUMBER).apply { if (Store.capYear > 0) setText(Store.capYear.toString()) }
