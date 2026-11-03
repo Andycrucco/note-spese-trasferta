@@ -294,7 +294,7 @@ object PdfMaker {
         y += 11f
         if (estYears.isNotEmpty()) { c.drawText("Stime: FMI, World Economic Outlook (imf.org/external/datamapper, PCPIPCH)", M, y, small); y += 11f }
         if (sec != null && ser != null) { c.drawText("Monterrey: INEGI, INPC per città e nazionale (dicembre di ogni anno, ultimo " + ser.last + ")", M, y, small); y += 11f }
-        area?.let { a -> localPanel(c, a, M, y + 8f, cw) }
+        area?.let { a -> localPanel(c, a, LocalContext.localIndex(a, e), M, y + 8f, cw) }
     }
 
     private fun legend(c: Canvas, x: Float, y: Float, withEst: Boolean, areaName: String? = null) {
@@ -317,17 +317,18 @@ object PdfMaker {
     private const val NAVY = 0xFF1F3A5F.toInt()
 
     /** barre orizzontali: area locale (rossa) contro riferimento (grigio), con note e fonte */
-    private fun localPanel(c: Canvas, a: LocalContext.Area, x: Float, y0: Float, w: Float) {
+    private fun localPanel(c: Canvas, a: LocalContext.Area, hl: Int, x: Float, y0: Float, w: Float) {
         var y = y0
         c.drawLine(x, y, x + w, y, Paint().apply { color = LINE; strokeWidth = 1f }); y += 14f
         c.drawText("CONTESTO LOCALE · " + a.name.uppercase(), x, y, paint(8f, true, RED).apply { letterSpacing = 0.06f }); y += 13f
         for (l in wrap(a.title, paint(10f, true, INK), w, 2)) { c.drawText(l, x, y, paint(10f, true, INK)); y += 13f }
         val maxV = a.bars.maxOf { it.value }.coerceAtLeast(0.01)
         val labW = 150f; val barW = w - labW - 50f
-        for (b in a.bars) {
-            c.drawText(b.label, x, y + 8f, paint(8.5f, b.highlight, INK))
+        for ((bi, b) in a.bars.withIndex()) {
+            val on = bi == hl
+            c.drawText(b.label, x, y + 8f, paint(8.5f, on, INK))
             val bw = (b.value / maxV * barW).toFloat()
-            c.drawRect(x + labW, y, x + labW + bw, y + 10f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (b.highlight) RED else 0xFF8A9099.toInt() })
+            c.drawRect(x + labW, y, x + labW + bw, y + 10f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (on) RED else 0xFF8A9099.toInt() })
             c.drawText(String.format(java.util.Locale.ITALY, "%.1f", b.value) + a.unit, x + labW + bw + 4f, y + 8.5f, paint(8.5f, true, INK))
             y += 14f
         }

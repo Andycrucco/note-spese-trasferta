@@ -7,7 +7,7 @@ package it.scontrini.trasferta
  * Dove l'istituto di statistica non pubblica l'inflazione per città, lo diciamo e usiamo un indicatore di reddito.
  */
 object LocalContext {
-    class Bar(val label: String, val value: Double, val highlight: Boolean)
+    class Bar(val label: String, val value: Double, val highlight: Boolean, val keys: List<String> = emptyList())
     /** indici ufficiali di dicembre (l'ultimo anno può essere l'ultimo mese pubblicato): nazionale e dell'area */
     class Series(val name: String, val short: String, val last: String, val inflArea: Double, val inflCountry: Double,
                  val country: Map<Int, Double>, val area: Map<Int, Double>) {
@@ -25,7 +25,8 @@ object LocalContext {
         val key: String, val name: String, val title: String,
         val bars: List<Bar>, val unit: String, val notes: List<String>, val source: String,
         val keywords: List<String>, val box: DoubleArray?, // latMin, latMax, lonMin, lonMax
-        val country: String = "", val series: Series? = null
+        val country: String = "", val series: Series? = null,
+        val ref: Int = 1 // barra di riferimento nazionale
     )
 
     private val MTY = Series("Area di Monterrey (INEGI)", "Monterrey", "settembre 2026", 2.91, 3.45,
@@ -45,8 +46,8 @@ object LocalContext {
             ),
             "INEGI, Banco de Información Económica: INPC Monterrey e nazionale (base 2a quincena luglio 2018 = 100), pubblicati da DATA Nuevo León; CIE-UANL, dicembre 2024",
             listOf("monterrey", "san pedro", "garza garc", "escobedo", "apodaca", "santa catarina", "nuevo leon", "nuevo león"),
-            doubleArrayOf(25.40, 26.05, -100.70, -99.90), "MX", MTY),
-        Area("slaskie", "Slesia (Katowice e Czestochowa)",
+            doubleArrayOf(25.40, 26.05, -100.70, -99.90), "MX", MTY, 1),
+        Area("slaskie", "Slesia (Katowice)",
             "Ricchezza prodotta per abitante, 2023 (media del voivodato di Slesia = 100)",
             listOf(Bar("Subregione di Katowice", 135.2, true), Bar("Media voivodato di Slesia", 100.0, false)), "",
             listOf(
@@ -54,24 +55,40 @@ object LocalContext {
                 "La differenza tra le due città si vede nel reddito: nella subregione di Katowice il PIL per abitante è il 135% della media regionale, e i prezzi dei servizi (ristoranti, hotel) lo seguono."
             ),
             "GUS, Informacja o sytuacji społeczno-gospodarczej województw 1/2024; Raport o stanie województwa śląskiego za 2025 rok",
-            listOf("katowice", "gliwice", "tychy", "sosnowiec", "chorzow", "chorzów", "bytom", "zabrze", "myslowice", "mysłowice", "ruda slaska", "ruda śląska", "siemianowice", "dabrowa gornicza", "dąbrowa górnicza", "czestochowa", "częstochowa"),
-            doubleArrayOf(50.05, 50.90, 18.60, 19.50)),
+            listOf("katowice", "gliwice", "tychy", "sosnowiec", "chorzow", "chorzów", "bytom", "zabrze", "myslowice", "mysłowice", "ruda slaska", "ruda śląska", "siemianowice", "dabrowa gornicza", "dąbrowa górnicza"),
+            doubleArrayOf(50.05, 50.50, 18.60, 19.50)),
         Area("italia", "Città italiane",
             "Indice dei prezzi NIC 2023 (2015 = 100): Milano e città del Sud",
-            listOf(Bar("Palermo", 122.5, false), Bar("Napoli", 120.7, false), Bar("Bari", 120.2, false), Bar("Italia", 119.6, false), Bar("Milano", 119.3, true)), "",
+            listOf(Bar("Palermo", 122.5, false, listOf("palermo")), Bar("Napoli", 120.7, false, listOf("napoli", "naples")), Bar("Bari", 120.2, false, listOf("bari")), Bar("Italia", 119.6, false), Bar("Milano", 119.3, true, listOf("milano", "milan", "sesto san giovanni", "assago"))), "",
             listOf(
                 "Dal 2015 al 2023 i prezzi a Milano sono cresciuti un po' meno che a Napoli o Palermo: l'inflazione misura come cambiano i prezzi, non quanto costano.",
                 "A Milano il livello dei prezzi resta più alto (ristoranti, alberghi): per questo il massimale va confrontato con il costo locale, non solo con l'inflazione."
             ),
             "ISTAT, indici NIC per capoluogo (Annuario statistico del Comune di Modena 2023); serie annuale di Milano: Comune di Milano, open data DS1821",
             listOf("milano", "milan", "sesto san giovanni", "assago", "rho ", "napoli", "palermo", "bari"),
-            doubleArrayOf(45.35, 45.65, 9.00, 9.40))
+            doubleArrayOf(45.35, 45.65, 9.00, 9.40), "IT", null, 3)
     )
 
-    fun areaFor(e: Expense): Area? {
+    private fun text(e: Expense) = (e.place + " " + e.poi + " " + e.trip).lowercase()
+
+    private fun match(e: Expense): Area? {
         val lat = e.lat; val lon = e.lon
         if (lat != null && lon != null) AREAS.firstOrNull { a -> a.box?.let { lat in it[0]..it[1] && lon in it[2]..it[3] } == true }?.let { return it }
-        val t = (e.place + " " + e.poi + " " + e.trip).lowercase()
+        val t = text(e)
         return AREAS.firstOrNull { a -> a.keywords.any { t.contains(it) } }
+    }
+
+    /** barra della zona della spesa (es. Napoli tra le città italiane), altrimenti quella evidenziata */
+    fun localIndex(a: Area, e: Expense): Int {
+        val t = text(e)
+        val k = a.bars.indexOfFirst { b -> b.keys.any { t.contains(it) } }
+        return if (k >= 0) k else a.bars.indexOfFirst { it.highlight }
+    }
+
+    /** contesto locale solo se il valore della zona supera quello nazionale di riferimento */
+    fun areaFor(e: Expense): Area? {
+        val a = match(e) ?: return null
+        val k = localIndex(a, e)
+        return a.takeIf { k >= 0 && a.bars[k].value > a.bars[a.ref].value }
     }
 }
