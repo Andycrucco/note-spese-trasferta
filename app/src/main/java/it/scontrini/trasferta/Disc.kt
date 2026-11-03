@@ -21,6 +21,8 @@ import androidx.appcompat.app.AlertDialog
  */
 object Disc {
     val HEAT = intArrayOf(R.drawable.disc_heat_0, R.drawable.disc_heat_1, R.drawable.disc_heat_2, R.drawable.disc_heat_3)
+    /** come HEAT ma sul cerchio rosso dell'icona, per il widget sulla Home */
+    val WIDGET = intArrayOf(R.drawable.widget_heat_0, R.drawable.widget_heat_1, R.drawable.widget_heat_2, R.drawable.widget_heat_3)
 
     /** 0 freddo · 1 tiepido · 2 caldo · 3 incandescente */
     fun level(todo: Int): Int = when { todo <= 0 -> 0; todo <= 2 -> 1; todo <= 5 -> 2; else -> 3 }
@@ -87,7 +89,7 @@ class DiscWidget : AppWidgetProvider() {
             Store.load(ctx)
             val todo = Store.pending().size
             val v = RemoteViews(ctx.packageName, R.layout.widget_disco)
-            v.setImageViewResource(R.id.disco, Disc.HEAT[Disc.level(todo)])
+            v.setImageViewResource(R.id.disco, Disc.WIDGET[Disc.level(todo)])
             v.setTextViewText(R.id.conta, if (todo > 0) todo.toString() else "✓")
             v.setContentDescription(R.id.disco, if (todo > 0) "$todo addebiti senza scontrino" else "Tutto a posto: fotografa uno scontrino")
             val act = if (todo > 0) MainActivity.ACT_TODO else MainActivity.ACT_FOTO

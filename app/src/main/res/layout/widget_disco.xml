@@ -10,7 +10,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:scaleType="fitCenter"
-        android:src="@drawable/disc_heat_0" />
+        android:src="@drawable/widget_heat_0" />
     <TextView
         android:id="@+id/conta"
         android:layout_width="wrap_content"

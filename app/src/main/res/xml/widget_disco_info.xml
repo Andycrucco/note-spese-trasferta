@@ -8,6 +8,6 @@
     android:updatePeriodMillis="0"
     android:initialLayout="@layout/widget_disco"
     android:previewLayout="@layout/widget_disco"
-    android:previewImage="@drawable/disc_heat_2"
+    android:previewImage="@drawable/widget_heat_2"
     android:description="@string/widget_desc"
     android:widgetCategory="home_screen" />

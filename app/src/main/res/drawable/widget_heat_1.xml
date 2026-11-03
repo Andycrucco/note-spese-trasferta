@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- widget: cerchio rosso come l'icona dell'app, con il disco al livello di calore 1 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item><shape android:shape="oval"><solid android:color="#E10A1E" /><size android:width="108dp" android:height="108dp" /></shape></item>
+    <item android:drawable="@drawable/disc_heat_1" />
+</layer-list>
