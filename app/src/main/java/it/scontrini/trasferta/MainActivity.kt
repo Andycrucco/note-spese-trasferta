@@ -321,6 +321,10 @@ class MainActivity : AppCompatActivity() {
                 }
             }.start()
         }
+        // il QR per collegare un altro telefono: sempre visibile, attivo dopo il primo collegamento
+        if (!Sync.connected) box.addView(btn("Mostra il QR per l'altro telefono", false) {
+            toast("Prima collega questo telefono: scrivi repository e chiave e tocca Collega. Poi qui comparirà il QR da far leggere agli altri telefoni.")
+        }.apply { alpha = 0.55f }, lp(top = dp(14)))
         if (Sync.connected) {
             box.addView(btn("Sincronizza ora") {
                 toast("Sincronizzo…")

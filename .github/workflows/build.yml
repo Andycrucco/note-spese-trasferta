@@ -37,13 +37,16 @@ jobs:
           gradle-version: "8.14.3"
 
       - name: Compila (APK da installare e AAB per Play Store)
-        run: gradle :app:assembleCompletaDebug :app:assembleSenzaSmsDebug :app:bundleCompletaRelease --no-daemon --stacktrace
+        run: gradle :app:assembleCompletaDebug :app:assembleSenzaSmsDebug :app:bundleCompletaRelease :app:assembleSenzaSmsRelease :app:bundleSenzaSmsRelease --no-daemon --stacktrace
 
       - name: Rinomina APK
         run: |
           cp app/build/outputs/apk/completa/debug/app-completa-debug.apk NoteSpeseTrasferta.apk
           cp app/build/outputs/apk/senzaSms/debug/app-senzaSms-debug.apk NoteSpeseTrasferta-senzaSMS.apk
           cp app/build/outputs/bundle/completaRelease/app-completa-release.aab NoteSpeseTrasferta-PlayStore.aab
+          # versione aziendale: release firmata, non di debug, senza permessi SMS e senza installare aggiornamenti da sola
+          cp app/build/outputs/apk/senzaSms/release/app-senzaSms-release.apk NoteSpeseTrasferta-aziendale.apk
+          cp app/build/outputs/bundle/senzaSmsRelease/app-senzaSms-release.aab NoteSpeseTrasferta-aziendale.aab
 
       - uses: actions/upload-artifact@v4
         with:
@@ -52,6 +55,8 @@ jobs:
             NoteSpeseTrasferta.apk
             NoteSpeseTrasferta-senzaSMS.apk
             NoteSpeseTrasferta-PlayStore.aab
+            NoteSpeseTrasferta-aziendale.apk
+            NoteSpeseTrasferta-aziendale.aab
 
       - name: Pubblica come release scaricabile
         uses: softprops/action-gh-release@v2
@@ -64,4 +69,6 @@ jobs:
             NoteSpeseTrasferta.apk
             NoteSpeseTrasferta-senzaSMS.apk
             NoteSpeseTrasferta-PlayStore.aab
+            NoteSpeseTrasferta-aziendale.apk
+            NoteSpeseTrasferta-aziendale.aab
           make_latest: true
