@@ -39,3 +39,8 @@ Gli aggiornamenti si installano sopra la versione precedente senza perdere i dat
 
 ## Compilazione
 Ogni modifica su `main` viene compilata da GitHub Actions (`.github/workflows/build.yml`) e pubblicata come release.
+
+## Google Play
+Tutto il materiale per la scheda dello Store è in [`playstore/`](playstore): testi in italiano e inglese (`scheda/`), icona 512×512, grafica 1024×500 e screenshot impaginati (`grafica/`), novità della versione (`whatsnew/`).
+- **Pubblica su Google Play** (Actions): compila l'AAB firmato e, con il Secret `PLAY_SERVICE_ACCOUNT_JSON`, lo carica sul canale scelto. L'AAB resta anche nel ramo `play-aab`.
+- **Screenshot Play Store** (Actions): apre l'app su un emulatore con spese inventate (`playstore/demo`) e salva le schermate nel ramo `play-screenshots`; `playstore/frame.py` le impagina a 1080×1920.
