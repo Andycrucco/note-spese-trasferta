@@ -145,7 +145,7 @@ for root, _, fs in os.walk(os.path.join(OUT, 'download')):
 if tap_text('Apri il menu', desc=True) and tap_text('Backup su file') and tap_text('Ripristina'):
     time.sleep(3); shot('t_ripristino_scegli')
     if tap_text('NoteSpese_backup'): time.sleep(1.5); shot('t_ripristino_fatto')
-if tap_text('Apri il menu', desc=True) and tap_text('Video di presentazione'):
+if tap_text('Apri il menu', desc=True) and scroll_to('Video di presentazione', top=900) and tap_text('Video di presentazione'):
     time.sleep(3); shot('t_video'); time.sleep(9); shot('t_video_finito')
 shell('cmd statusbar click-tile it.scontrini.trasferta/.ReceiptTileService'); time.sleep(4); shot('t_riquadro')
 print('app viva dopo le prove:', alive())
