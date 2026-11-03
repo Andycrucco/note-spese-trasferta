@@ -135,6 +135,12 @@ object Sync {
             e.photo?.let { File(it) }?.takeIf { it.exists() }?.let { f -> m["foto/${e.id}.jpg"] = Local(fileHash(f)) { f.readBytes() } }
         }
         for (s in Store.sms) { val b = smsBytes(s); m["sms/${s.id}.json"] = Local(hash(b)) { b } }
+        // logo aziendale scelto in Impostazioni: lo ricevono anche gli altri dispositivi
+        Store.logoFile(ctx).takeIf { it.exists() }?.let { f -> m["config/logo.png"] = Local(fileHash(f)) { f.readBytes() } }
+        // dati della Banca Mondiale già scaricati: servono alla versione web per la pagina inflazione
+        ctx.filesDir.listFiles { f -> f.name.startsWith("cpi_") && f.name.endsWith(".json") }?.forEach { f ->
+            m["cpi/" + f.name.removePrefix("cpi_")] = Local(fileHash(f)) { f.readBytes() }
+        }
         return m
     }
 
@@ -150,7 +156,7 @@ object Sync {
             Store.load(ctx)
             val gh = Gh(Store.repoToken, Store.repo)
             val branch = gh.branch()
-            val remote = gh.tree(branch).filterKeys { it.startsWith("spese/") || it.startsWith("foto/") || it.startsWith("sms/") }
+            val remote = gh.tree(branch).filterKeys { it.startsWith("spese/") || it.startsWith("foto/") || it.startsWith("sms/") || it == "config/logo.png" || it.startsWith("cpi/") }
 
             // 1. scarico quello che è cambiato altrove (prima le spese, poi le foto, poi gli addebiti)
             var local = synchronized(Store) { locals(ctx) }
@@ -175,6 +181,14 @@ object Sync {
                                 Store.syncHash[path] = hash(expBytes(r))
                                 down++
                             }
+                        }
+                        path == "config/logo.png" -> {
+                            if (!changedHere) { val f = Store.logoFile(ctx); f.writeBytes(bytes); Store.syncHash[path] = fileHash(f); down++ }
+                        }
+                        path.startsWith("cpi/") -> {
+                            val f = File(ctx.filesDir, "cpi_" + path.removePrefix("cpi/"))
+                            if (!changedHere && (!f.exists() || f.length() < bytes.size)) { f.writeBytes(bytes) }
+                            if (f.exists()) Store.syncHash[path] = fileHash(f)
                         }
                         path.startsWith("foto/") -> {
                             val id = idOf(path)

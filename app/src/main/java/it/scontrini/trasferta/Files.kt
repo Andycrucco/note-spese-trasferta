@@ -101,20 +101,48 @@ object PdfMaker {
         return y + 8f
     }
 
-    /** Pagina 1: dati e foto. Per i pasti, pagina 2: inflazione del paese (Banca Mondiale). */
+    /** pasti (bar, pranzo, cena) e pernotti: al PDF si aggiunge la pagina sull'inflazione */
+    fun wantsCpi(e: Expense) = e.isMeal || e.category == "Albergo" || Ztravel.isPernotto(Ztravel.voce(e))
+
+    /** limite di peso del giustificativo (pagina con la foto + pagina inflazione) */
+    const val MAX_BYTES = 600 * 1024
+
+    /**
+     * Pagina 1: dati e foto. Per pasti e pernotti, pagina 2: inflazione del paese (Banca Mondiale).
+     * Le pagine sono "scansioni" JPEG inserite così come sono, così il file resta sotto i 600 KB.
+     */
     fun make(ctx: Context, e: Expense, photo: Bitmap?, cpi: Cpi.Series? = null, cpiCountry: String = ""): File {
-        val doc = PdfDocument()
-        page1(ctx, doc, e, photo)
-        if (e.isMeal) page2(ctx, doc, e, cpi, cpiCountry)
+        val k = 2.0f
+        fun render(draw: (Canvas) -> Unit): Bitmap {
+            val b = Bitmap.createBitmap((W * k).toInt(), (H * k).toInt(), Bitmap.Config.ARGB_8888)
+            val c = Canvas(b); c.drawColor(android.graphics.Color.WHITE); c.scale(k, k); draw(c)
+            return b
+        }
+        fun jpeg(b: Bitmap, budget: Int): Triple<ByteArray, Int, Int> {
+            var q = 82; var out: ByteArray
+            while (true) {
+                val bo = java.io.ByteArrayOutputStream(); b.compress(Bitmap.CompressFormat.JPEG, q, bo); out = bo.toByteArray()
+                if (out.size <= budget || q <= 30) break
+                q -= 8
+            }
+            return Triple(out, b.width, b.height)
+        }
+        val second = wantsCpi(e) && !e.declaration
+        val p1 = render { page1(ctx, it, e, photo) }
+        val pdf = TinyPdf()
+        val j1 = jpeg(p1, if (second) MAX_BYTES - 150 * 1024 else MAX_BYTES - 20 * 1024); p1.recycle()
+        pdf.page(emptyList(), j1, floatArrayOf(0f, 0f, W.toFloat(), H.toFloat()))
+        if (second) {
+            val p2 = render { page2(ctx, it, e, cpi, cpiCountry) }
+            val j2 = jpeg(p2, MAX_BYTES - j1.first.size - 8 * 1024); p2.recycle()
+            pdf.page(emptyList(), j2, floatArrayOf(0f, 0f, W.toFloat(), H.toFloat()))
+        }
         val f = File(Store.pdfDir(ctx), e.pdfName())
-        f.outputStream().use { doc.writeTo(it) }
-        doc.close()
+        pdf.write(f)
         return f
     }
 
-    private fun page1(ctx: Context, doc: PdfDocument, e: Expense, photo: Bitmap?) {
-        val page = doc.startPage(PdfDocument.PageInfo.Builder(W, H, 1).create())
-        val c = page.canvas
+    private fun page1(ctx: Context, c: Canvas, e: Expense, photo: Bitmap?) {
         val cw = W - 2 * M
         var y = header(ctx, c, if (e.declaration) "Dichiarazione sostitutiva: scontrino non disponibile" else e.place.ifBlank { "Scontrino" })
         val label = paint(8f, false, INK2).apply { letterSpacing = 0.08f }
@@ -142,10 +170,12 @@ object PdfMaker {
         Ztravel.capCheck(e)?.takeIf { it.over != null }?.let { cc -> rows.add("MASSIMALE " + cc.zone.uppercase().take(24) to (if (cc.over == true) "OLTRE: " else "entro: ") + Fmt.money(cc.value) + " / " + Fmt.money(cc.cap) + " " + cc.cur) }
         if (e.poi.isNotEmpty() || e.country.isNotEmpty()) rows.add("LUOGO DELLA FOTO" to listOf(e.poi, e.country).filter { it.isNotEmpty() }.joinToString(" · "))
         val colW = cw / 2
+        val okP = paint(11.5f, true, 0xFF1E8E3E.toInt()); val overP = paint(11.5f, true, RED)
         rows.forEachIndexed { i, (k, v) ->
             val x = M + (i % 2) * colW; val yy = y + (i / 2) * 30f
             c.drawText(k, x, yy, label)
-            c.drawText(wrap(v, value, colW - 10f, 1).firstOrNull() ?: v, x, yy + 14f, value)
+            val vp = if (k.startsWith("MASSIMALE")) (if (v.startsWith("OLTRE")) overP else okP) else value
+            c.drawText(wrap(v, vp, colW - 10f, 1).firstOrNull() ?: v, x, yy + 14f, vp)
         }
         y += ((rows.size + 1) / 2) * 30f + 4f
         if (e.note.isNotEmpty()) {
@@ -191,12 +221,9 @@ object PdfMaker {
         } else {
             c.drawText("Foto dello scontrino non disponibile", M, y + 14f, paint(10f, false, INK2))
         }
-        doc.finishPage(page)
     }
 
-    private fun page2(ctx: Context, doc: PdfDocument, e: Expense, cpi: Cpi.Series?, iso: String) {
-        val page = doc.startPage(PdfDocument.PageInfo.Builder(W, H, 2).create())
-        val c = page.canvas
+    private fun page2(ctx: Context, c: Canvas, e: Expense, cpi: Cpi.Series?, iso: String) {
         val cw = W - 2 * M
         var y = header(ctx, c, "Inflazione: " + (cpi?.name ?: iso.ifEmpty { "paese non determinato" }))
         val small = paint(9f, false, INK2); val body = paint(11f, false, INK); val bold = paint(11f, true, INK)
@@ -204,7 +231,7 @@ object PdfMaker {
         y += 18f
         if (cpi == null || cpi.points.size < 3) {
             for (l in wrap("Dati della Banca Mondiale non disponibili per questo paese o senza connessione. Apri la spesa quando sei online e ricrea il PDF.", body, cw, 4)) { c.drawText(l, M, y, body); y += 15f }
-            doc.finishPage(page); return
+            return
         }
         val pts = cpi.points.filter { it.year >= cpi.points.last().year - 15 }
         val last = pts.last()
@@ -229,21 +256,24 @@ object PdfMaker {
         if (yearSpent > last.year) lines.add(("La spesa è del $yearSpent: la Banca Mondiale non ha ancora pubblicato il dato di quell'anno.") to false)
         val zone = Ztravel.zoneFor(e)
         val manual = Store.capAmount > 0 && Store.capYear > 0 && Store.capCurrency.equals(e.currency, true)
-        val capBase = if (manual) Store.capAmount else zone?.takeIf { it.cur.equals(e.currency, true) }?.vitto ?: 0.0
+        val hotel = Ztravel.isPernotto(Ztravel.voce(e))
+        val capBase = if (manual && !hotel) Store.capAmount else zone?.takeIf { it.cur.equals(e.currency, true) }?.let { if (hotel) it.soggiorno else it.vitto } ?: 0.0
         val capYear = if (manual) Store.capYear else Ztravel.CAP_YEAR
         if (capBase > 0) {
             CpiMath.revalue(capBase, capYear, cpi.points)?.let { (cap, yr) ->
-                val perHead = e.amount / e.people
+                val perHead = if (hotel) e.amount / e.nights.coerceAtLeast(1) else e.amount / e.people
+                val unit = if (hotel) " a notte" else " a persona"
                 val within = perHead <= cap + 0.005
-                lines.add(("Massimale pasto: " + Fmt.money(capBase) + " " + e.currency + " (" + capYear + (if (!manual && zone != null) ", " + zone.name else "") + "), rivalutato al $yr: " + Fmt.money(cap) + " " + e.currency + " a persona.") to true)
-                lines.add(("Questo pasto: " + Fmt.money(perHead) + " " + e.currency + " a persona (" + e.people + " persone) → " + (if (within) "entro il massimale." else "oltre il massimale di " + Fmt.money(perHead - cap) + ".")) to true)
+                lines.add(((if (hotel) "Massimale pernotto: " else "Massimale pasto: ") + Fmt.money(capBase) + " " + e.currency + " (" + capYear + (if (zone != null && !(manual && !hotel)) ", " + zone.name else "") + "), rivalutato al $yr: " + Fmt.money(cap) + " " + e.currency + unit + ".") to true)
+                lines.add(((if (hotel) "Questo pernotto: " + Fmt.money(perHead) + " " + e.currency + unit + " (" + e.nights + (if (e.nights == 1) " notte)" else " notti)")
+                    else "Questo pasto: " + Fmt.money(perHead) + " " + e.currency + unit + " (" + e.people + (if (e.people == 1) " persona)" else " persone, conto diviso per i commensali)")) +
+                    " → " + (if (within) "entro il massimale rivalutato." else "oltre il massimale rivalutato di " + Fmt.money(perHead - cap) + ".")) to true)
             }
         }
         for ((t, b) in lines) for (l in wrap(t, if (b) bold else body, cw, 3)) { c.drawText(l, M, y, if (b) bold else body); y += 15f }
         y += 8f
         val upd = if (cpi.lastUpdated.isNotEmpty()) "aggiornamento Banca Mondiale " + cpi.lastUpdated + ", " else ""
         c.drawText("Fonte: data.worldbank.org/indicator/FP.CPI.TOTL · " + upd + "scaricato il " + Fmt.isoOf(cpi.fetchedAt), M, y, small)
-        doc.finishPage(page)
     }
 
     private fun lineChart(c: Canvas, pts: List<CpiPoint>, x: Float, y: Float, w: Float, h: Float): Float {
@@ -342,10 +372,12 @@ object Exporter {
 
     /** PDF della spesa (lo crea se manca); per i pasti scarica i dati CPI se c'è internet. */
     fun pdfFor(ctx: Context, e: Expense, rebuild: Boolean = false): File? {
-        if (!rebuild) e.pdf?.let { val f = File(Store.pdfDir(ctx), it); if (f.exists() && f.name == e.pdfName()) return f }
+        // PDF del formato precedente (più pesanti, senza pagina inflazione per i pernotti): li rifaccio una volta
+        val pv = ctx.getSharedPreferences("export", Context.MODE_PRIVATE).getInt("pdf_v", 1)
+        if (!rebuild && pv >= 2) e.pdf?.let { val f = File(Store.pdfDir(ctx), it); if (f.exists() && f.name == e.pdfName() && f.length() <= PdfMaker.MAX_BYTES) return f }
         val p = e.photo?.let { File(it) }?.takeIf { it.exists() }
         val iso = Categorizer.countryFor(e.country, e.currency)
-        val cpi = if (e.isMeal) Cpi.get(ctx, iso) else null
+        val cpi = if (PdfMaker.wantsCpi(e)) Cpi.get(ctx, iso) else null
         val f = PdfMaker.make(ctx, e, p?.let { BitmapFactory.decodeFile(it.absolutePath) }, cpi, iso)
         e.pdf = f.name
         return f
@@ -365,6 +397,11 @@ object Exporter {
         val files = HashMap<String, Pair<String, String?>>()
         val items = ordered(list)
         try { Fx.fill(ctx, items) } catch (_: Exception) {}
+        val pv = ctx.getSharedPreferences("export", Context.MODE_PRIVATE)
+        if (pv.getInt("pdf_v", 1) < 2) {
+            for (e in items) try { pdfFor(ctx, e, rebuild = true) } catch (_: Exception) {}
+            pv.edit().putInt("pdf_v", 2).apply()
+        }
         var ok = true; var photos = 0
         // la numerazione può essere cambiata (SMS aggiunti dopo): tolgo i file della volta scorsa
         clearDownloads(ctx, rel)
@@ -394,11 +431,13 @@ object Exporter {
                 val jpg = try { Ztravel.scanJpeg(bmp) } catch (_: Exception) { null }
                 bmp.recycle()
                 if (jpg == null) return@forEachIndexed
-                val name = Ztravel.jpgName(i + 1, e)
-                z.putNextEntry(ZipEntry("$dirName/Ztravel/Allegati_singoli/$name")); z.write(jpg.first); z.closeEntry()
-                val tf = File(exportDir(ctx), name).apply { writeBytes(jpg.first) }
-                ok = toDownloads(ctx, tf, "image/jpeg", "$rel/Ztravel/Allegati_singoli", name) && ok
-                tf.delete()
+                // allegato singolo: il PDF con la foto (+ pagina inflazione per pasti e pernotti), sotto i 600 KB
+                val single = try { pdfFor(ctx, e) } catch (_: Exception) { null }
+                if (single != null) {
+                    val name = Ztravel.jpgName(i + 1, e).removeSuffix(".jpg") + ".pdf"
+                    z.putNextEntry(ZipEntry("$dirName/Ztravel/Allegati_singoli/$name")); single.inputStream().use { it.copyTo(z) }; z.closeEntry()
+                    ok = toDownloads(ctx, single, "application/pdf", "$rel/Ztravel/Allegati_singoli", name) && ok
+                }
                 val head = "N. Alleg. ${i + 1}  -  " + Fmt.dmy(e.date) + "  -  " + Ztravel.lines(e).joinToString(" + ") { it.voce + " " + Fmt.money(it.amount) } + " " + e.currency
                 val sc = minOf(527f / jpg.second, 770f / jpg.third)
                 val iw = jpg.second * sc; val ih = jpg.third * sc
@@ -421,7 +460,7 @@ object Exporter {
             addFile(rf, "Ztravel", "text/csv")
             val lf = File(exportDir(ctx), "LEGGIMI.txt").apply {
                 writeText("Caricamento in Ztravel (Spese viaggiatore)\r\n\r\n" +
-                    "Modalita singola: per ogni riga carica il JPG di Allegati_singoli con lo stesso numero (N. Alleg.). Ogni file e una sola pagina sotto i 200 KB.\r\n" +
+                    "Modalita singola: per ogni riga carica il PDF di Allegati_singoli con lo stesso numero (N. Alleg.). Pagina con la foto + pagina inflazione per pasti e pernotti, sotto i 600 KB.\r\n" +
                     "Modalita massiva: carica solo Giustificativi_modalita_massiva.pdf sulla prima spesa. Scegli una sola delle due modalita.\r\n" +
                     "Sezione Allegati: se non hai altri documenti carica Allegati_NESSUN_DOCUMENTO_DA_ALLEGARE.pdf.\r\n" +
                     "Le Mance vanno in una riga separata con lo stesso numero di allegato (vedi Righe_nota_spese.csv).\r\n" +

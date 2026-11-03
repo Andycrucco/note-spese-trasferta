@@ -173,7 +173,15 @@ class MainActivity : AppCompatActivity() {
     private fun buildMenu() {
         menuPanel.removeAllViews()
         val head = vbox().apply { setPadding(dp(20), dp(20), dp(20), dp(16)); setBackgroundColor(col(R.color.red)) }
-        head.addView(ImageView(this).apply { setImageResource(R.mipmap.ic_launcher) }, LinearLayout.LayoutParams(dp(52), dp(52)))
+        val logoF = Store.logoFile(this)
+        val logoBmp = if (logoF.exists()) BitmapFactory.decodeFile(logoF.absolutePath) else null
+        if (logoBmp != null) {
+            // logo aziendale caricato in Impostazioni, su fondo bianco come nei PDF
+            head.addView(ImageView(this).apply {
+                setImageBitmap(logoBmp); adjustViewBounds = true; scaleType = ImageView.ScaleType.FIT_START
+                setBackgroundColor(android.graphics.Color.WHITE); setPadding(dp(8), dp(6), dp(8), dp(6)); maxHeight = dp(48)
+            }, LinearLayout.LayoutParams(-2, dp(48)))
+        } else head.addView(ImageView(this).apply { setImageResource(R.mipmap.ic_launcher) }, LinearLayout.LayoutParams(dp(52), dp(52)))
         head.addView(txt("Note spese trasferta", 18f, R.color.ink, true), lp(top = dp(10)))
         head.addView(txt(listOf(Store.myName, if (Store.myCard.isNotEmpty()) "carta " + Store.myCard else "").filter { it.isNotEmpty() }.joinToString(" · ")
             .ifEmpty { "Versione " + Updates.currentName }, 13f, R.color.ink))
@@ -739,7 +747,7 @@ class MainActivity : AppCompatActivity() {
             renderList(list)
             root.addView(cap("Esporta per Ztravel").also { exportAnchor = it }, lp(top = dp(22)))
             root.addView(btn("Crea cartella per Ztravel") { exportFolder(list) }, lp(top = dp(6)))
-            root.addView(txt("Dentro trovi la sottocartella Ztravel: un JPG per spesa sotto i 200 KB (N. Alleg.), il PDF unico per la modalità massiva, il PDF \"nessun documento\" e le righe con le Mance separate. Gli altri file numerati nell'ordine della banca sono il tuo archivio. Se poi aggiungi un SMS perso, i numeri si riordinano da soli: riesporta e la cartella viene rifatta. Finisce in Download/NoteSpese e puoi inviarla a OneDrive.", 12f, R.color.ink2), lp(top = dp(4)))
+            root.addView(txt("Dentro trovi la sottocartella Ztravel: un PDF per spesa sotto i 600 KB con la pagina inflazione per pasti e pernotti (N. Alleg.), il PDF unico per la modalità massiva, il PDF \"nessun documento\" e le righe con le Mance separate. Gli altri file numerati nell'ordine della banca sono il tuo archivio. Se poi aggiungi un SMS perso, i numeri si riordinano da soli: riesporta e la cartella viene rifatta. Finisce in Download/NoteSpese e puoi inviarla a OneDrive.", 12f, R.color.ink2), lp(top = dp(4)))
             root.addView(btn("Solo CSV di riepilogo", false) { exportCsv(list) }, lp(top = dp(8)))
         }
     }
@@ -808,10 +816,15 @@ class MainActivity : AppCompatActivity() {
                 title.addView(txt(e.place.ifBlank { "Senza luogo" }, 15f, bold = true), LinearLayout.LayoutParams(0, -2, 1f))
                 left.addView(title)
                 val meta = mutableListOf(Ztravel.voce(e) + (if (e.time.isNotEmpty()) " " + e.time else ""), e.card.ifBlank { "Senza carta" } + (if (Ztravel.personal(e)) " (personale)" else ""))
-                Ztravel.capCheck(e)?.takeIf { it.over == true }?.let { meta.add("oltre massimale " + Fmt.money(it.cap) + " " + it.cur) }
+
                 if (e.tipCash > 0) meta.add("mancia a tavola " + Fmt.money(e.tipCash))
                 if (e.guests.isNotEmpty()) meta.add("con " + e.guests.joinToString(", "))
                 left.addView(txt(meta.joinToString(" · "), 13f, R.color.ink2))
+                Ztravel.capCheck(e)?.takeIf { it.over != null }?.let { cc ->
+                    val unit = if (cc.kind == "vitto") (if (e.people > 1) " a persona (" + e.people + " a tavola)" else " a persona") else " a notte"
+                    left.addView(txt((if (cc.over == true) "● Oltre il massimale: " else "● Entro il massimale: ") + Fmt.money(cc.value) + unit + " su " + Fmt.money(cc.cap) + " " + cc.cur,
+                        12.5f, if (cc.over == true) R.color.red else R.color.ok, true))
+                }
                 if (Store.sms.isNotEmpty()) {
                     val ok = m.e2s.containsKey(e.id)
                     val d = m.diff[e.id] ?: 0.0
