@@ -1018,11 +1018,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun expenseMenu(e: Expense) {
         AlertDialog.Builder(this).setTitle(e.place)
-            .setItems(arrayOf("Condividi PDF (OneDrive…)", "Modifica", "Elimina")) { _, which ->
+            .setItems(arrayOf("Vedi il PDF", "Condividi PDF (OneDrive…)", "Modifica", "Elimina")) { _, which ->
                 when (which) {
-                    0 -> sharePdf(e)
-                    1 -> startActivity(Intent(this, ExpenseActivity::class.java).putExtra(ExpenseActivity.EXTRA_EXP, e.id))
-                    2 -> AlertDialog.Builder(this).setTitle("Eliminare questa spesa?")
+                    0 -> viewPdf(e)
+                    1 -> sharePdf(e)
+                    2 -> startActivity(Intent(this, ExpenseActivity::class.java).putExtra(ExpenseActivity.EXTRA_EXP, e.id))
+                    3 -> AlertDialog.Builder(this).setTitle("Eliminare questa spesa?")
                         .setMessage(e.place + " · " + Fmt.money(e.total) + " " + e.currency)
                         .setPositiveButton("Elimina") { _, _ ->
                             Store.forgetExpense(e)
@@ -1051,6 +1052,19 @@ class MainActivity : AppCompatActivity() {
             .setMessage(Fmt.money(s.amount) + " " + s.currency + " · " + s.merchant)
             .setPositiveButton("Elimina") { _, _ -> Store.forgetSms(s); Store.save(this); render(); Sync.later(this) }
             .setNegativeButton("Annulla", null).show()
+    }
+
+    private fun viewPdf(e: Expense) {
+        val busy = Disc.Busy(this, if (PdfMaker.wantsCpi(e)) "Preparo il PDF con la pagina sull'inflazione…" else "Preparo il PDF…")
+        Thread {
+            val f = try { Exporter.pdfFor(this, e) } catch (ex: Exception) { null }
+            try { synchronized(Store) { Store.save(this) } } catch (_: Exception) {}
+            runOnUiThread {
+                busy.dismiss()
+                if (f == null) toast("Questa spesa non ha la foto: aprila e aggiungi la foto per creare il PDF.")
+                else startActivity(PdfViewActivity.intent(this, f, Exporter.cpiMissing(this, e)))
+            }
+        }.start()
     }
 
     private fun sharePdf(e: Expense) {

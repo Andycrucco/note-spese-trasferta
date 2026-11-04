@@ -305,7 +305,15 @@ class ExpenseActivity : AppCompatActivity() {
 
         pdfBtn = btn(if (declaration) "Crea dichiarazione PDF e salva" else "Crea PDF e salva") { save(true) }
         saveBtn = btn("Salva senza PDF", false) { save(false) }
-        root.addView(pdfBtn, lp(top = dp(18)))
+        val old = editing
+        if (old != null && (old.photo != null || old.declaration)) root.addView(btn("Vedi il PDF", false) {
+            Thread {
+                val f = try { Exporter.pdfFor(this, old) } catch (_: Exception) { null }
+                try { synchronized(Store) { Store.save(this) } } catch (_: Exception) {}
+                runOnUiThread { if (f != null) startActivity(PdfViewActivity.intent(this, f, Exporter.cpiMissing(this, old))) else toast("Non riesco a creare il PDF.") }
+            }.start()
+        }, lp(top = dp(18)))
+        root.addView(pdfBtn, lp(top = dp(10)))
         root.addView(saveBtn, lp(top = dp(8)))
 
         listOf(place, amount, tip, tipCash, cur, card, nights, provider, route, noteIn).forEach { it.doAfterTextChanged { dupAck = false; refresh() } }
@@ -708,7 +716,8 @@ class ExpenseActivity : AppCompatActivity() {
                 runOnUiThread {
                     busy = false
                     toast("Registrato: " + e.place + ", " + Fmt.money(e.total) + " " + e.currency)
-                    if (pdf != null) afterShare.launch(Exporter.shareIntent(this, pdf, "application/pdf", "Invia il PDF a OneDrive"))
+                    // dopo il salvataggio si vede subito il PDF: foto e dati, poi la pagina inflazione per pasti e pernotti
+                    if (pdf != null) afterShare.launch(PdfViewActivity.intent(this, pdf, Exporter.cpiMissing(this, e)))
                     else next()
                 }
             } catch (ex: Exception) {

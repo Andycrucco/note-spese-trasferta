@@ -463,7 +463,8 @@ object Exporter {
     fun pdfFor(ctx: Context, e: Expense, rebuild: Boolean = false): File? {
         // PDF del formato precedente (più pesanti, senza pagina inflazione per i pernotti): li rifaccio una volta
         val pv = ctx.getSharedPreferences("export", Context.MODE_PRIVATE).getInt("pdf_v", 1)
-        if (!rebuild && pv >= 2) e.pdf?.let { val f = File(Store.pdfDir(ctx), it); if (f.exists() && f.name == e.pdfName() && f.length() <= PdfMaker.MAX_BYTES) return f }
+        // un PDF creato senza internet ha la pagina inflazione vuota: lo rifaccio appena i dati sono disponibili
+        if (!rebuild && pv >= 2 && !cpiMissing(ctx, e)) e.pdf?.let { val f = File(Store.pdfDir(ctx), it); if (f.exists() && f.name == e.pdfName() && f.length() <= PdfMaker.MAX_BYTES) return f }
         val p = e.photo?.let { File(it) }?.takeIf { it.exists() }
         val iso = Categorizer.countryFor(e.country, e.currency)
         val cpi = if (PdfMaker.wantsCpi(e)) Cpi.get(ctx, iso)?.let { s ->
@@ -474,8 +475,17 @@ object Exporter {
         } else null
         val f = PdfMaker.make(ctx, e, p?.let { BitmapFactory.decodeFile(it.absolutePath) }, cpi, iso)
         e.pdf = f.name
+        val missing = PdfMaker.wantsCpi(e) && !e.declaration && (cpi == null || cpi.points.size < 3)
+        val pr = ctx.getSharedPreferences("export", Context.MODE_PRIVATE)
+        val set = (pr.getStringSet("nocpi", emptySet()) ?: emptySet()).toMutableSet()
+        if (missing) set.add(e.id) else set.remove(e.id)
+        pr.edit().putStringSet("nocpi", set).apply()
         return f
     }
+
+    /** true se il PDF della spesa è stato creato senza i dati dell'inflazione (niente internet) */
+    fun cpiMissing(ctx: Context, e: Expense): Boolean =
+        ctx.getSharedPreferences("export", Context.MODE_PRIVATE).getStringSet("nocpi", emptySet())?.contains(e.id) == true
 
     class Folder(val zip: File, val folder: String, val count: Int, val withPhoto: Int, val savedToDownloads: Boolean)
 
