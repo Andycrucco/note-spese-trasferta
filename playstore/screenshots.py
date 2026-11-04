@@ -112,7 +112,12 @@ scroll_to('Asador Cerro Alto'); shot('04_elenco')
 scroll_to('Controllo prima'); shot('05_controllo')
 to_top()
 if scroll_to('Asador Cerro Alto') and tap_text('Asador Cerro Alto'):
-    time.sleep(3); shot('06_spesa'); shell('input keyevent KEYCODE_BACK'); time.sleep(2)
+    time.sleep(3); shot('06_spesa')
+    if scroll_to('Vedi il PDF', top=900) and tap_text('Vedi il PDF'):
+        time.sleep(14); shot('t_pdf_1')
+        for _ in range(3): shell('input swipe 540 1700 540 500 600'); time.sleep(1)
+        shot('t_pdf_2'); shell('input keyevent KEYCODE_BACK'); time.sleep(2)
+    shell('input keyevent KEYCODE_BACK'); time.sleep(2)
 to_top()
 if tap_text('Apri il menu', desc=True): shot('07_menu'); shell('input keyevent KEYCODE_BACK'); time.sleep(1)
 to_top()
