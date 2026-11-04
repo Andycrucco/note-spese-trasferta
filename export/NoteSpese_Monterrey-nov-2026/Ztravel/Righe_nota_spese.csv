@@ -1,0 +1,9 @@
+﻿N. Alleg.;Data;Voce spesa;Importo in divisa;Div.;Tipo documento;Modalita di pagamento;Carta;Commensali;Fornitore / percorso;Note;Massimale
+1;26/10/2026;Taxi;320,00;MXN;Ricevuta/Scontrino;Carta aziendale;VISA 1234;;Taxi Valle S.A. de C.V. - Aeropuerto MTY - Hotel Plaza Norte;;
+2;27/10/2026;Cena;1450,00;MXN;Ricevuta/Scontrino;Carta aziendale;VISA 1234;Luca Bianchi;;;OLTRE 600,00 MXN
+2;27/10/2026;Mance;145,00;MXN;Ricevuta/Scontrino;Carta aziendale;VISA 1234;;;;
+3;28/10/2026;Pranzo;380,00;MXN;Ricevuta/Scontrino;Carta aziendale;VISA 1234;;;;ok
+3;28/10/2026;Mance;40,00;MXN;Ricevuta/Scontrino;Carta aziendale;VISA 1234;;;;
+4;29/10/2026;Bar;95,00;MXN;Ricevuta/Scontrino;Carta aziendale;VISA 1234;;;;
+5;29/10/2026;Cena;980,00;MXN;Ricevuta/Scontrino;Carta aziendale;VISA 1234;Luca Bianchi, Sara Verdi;;;ok
+6;30/10/2026;Pernotto + Colazione;6900,00;MXN;Fattura;Carta aziendale;VISA 1234;;;;ok

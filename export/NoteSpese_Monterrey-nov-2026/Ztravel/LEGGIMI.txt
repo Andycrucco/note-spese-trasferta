@@ -1,0 +1,8 @@
+Caricamento in Ztravel (Spese viaggiatore)
+
+Modalita singola: per ogni riga carica il PDF di Allegati_singoli con lo stesso numero (N. Alleg.). Pagina con la foto + pagina inflazione per pasti e pernotti, sotto i 600 KB.
+Modalita massiva: carica solo Giustificativi_modalita_massiva.pdf sulla prima spesa. Scegli una sola delle due modalita.
+Sezione Allegati: se non hai altri documenti carica Allegati_NESSUN_DOCUMENTO_DA_ALLEGARE.pdf.
+Le Mance vanno in una riga separata con lo stesso numero di allegato (vedi Righe_nota_spese.csv).
+Taxi: giustificativo con data, prestatore, percorso e importo (Uber escluso). Pernotto: fattura intestata al dipendente.
+I PDF numerati 001_... sono il tuo archivio completo (con la pagina sull'inflazione per i pasti): non caricarli in Ztravel.
